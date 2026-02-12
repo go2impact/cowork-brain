@@ -3,7 +3,7 @@
 ## The Process
 
 1. **Branch** from `main` (name: `your-name/short-description`, e.g. `rustan/whisper-warm-up`)
-2. **Edit** the relevant doc(s) in `architecture/` or `strategy/`
+2. **Edit** the relevant doc(s) in `product/`, `architecture/`, `strategy/`, `design/`, or `gtm/`
 3. **Add an entry** to `decisions/decision-log.md` (see format below)
 4. **Update the changelog** at the bottom of any doc you changed
 5. **PR** to `main`. Tag Scott for review on anything that affects cost or tier logic.

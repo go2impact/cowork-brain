@@ -150,3 +150,57 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **Cost impact:** Caps free tier at configurable threshold. Prevents runaway subsidy costs during growth.
 
 **Approved by:** Scott
+
+---
+
+## 2026-02-12 — Design system: Material Design 3
+
+**Changed:** Adopted M3 (Material Design 3) as the mandatory design system for all Cowork.ai UI surfaces.
+
+**From → To:** No formal design system (ad hoc styling per prototype) → M3 dark theme token system, documented in `design/design-system.md`.
+
+**Why:**
+1. Cowork.ai is a platform where users install and build MCP apps. Those apps generate UI. AI generates UI. Without a rigid, well-documented token system, the product becomes visually incoherent within weeks.
+2. M3 has the most complete publicly documented token system (colors, elevation, shape, motion all have named specs). When an LLM generates a component, it can follow M3 specs and produce something that looks native.
+3. Google maintains M3 — we don't need to maintain a custom design system with a small team.
+4. M3 tokens map cleanly to Tailwind, which is our entire frontend stack.
+5. Dark theme is first-class in M3, not bolted on. Desktop sidecar = dark by default.
+
+**Alternatives considered:**
+- Custom design system: More flexible but requires dedicated design resource to maintain. Not viable at our team size.
+- Shadcn/Radix: Good component libraries but no comprehensive token system for AI-generated UIs.
+- Apple HIG: Strong but not well-documented for web, and would conflict with cross-platform goals (51 countries, many on Windows).
+
+**Approved by:** Scott
+
+---
+
+## 2026-02-12 — Interaction model: Three-state sidecar
+
+**Changed:** Locked the interaction model to a three-state pattern: Closed (menu bar only) → SideSheet (right panel) → SideSheet + Detail Canvas (full workspace).
+
+**From → To:** Various prototype approaches (some with nav rail always visible, some with tab switching) → Standardized three-state model documented in `design/design-system.md`.
+
+**Why:**
+1. Workers need zero visual intrusion when they're not using us. State 1 (closed) means Cowork.ai doesn't exist on screen. This is critical for the trust model — we're not surveillance software.
+2. State 2 (sidesheet) is the quick-glance dashboard. Check status, scan context, 5 seconds, back to work. The sidesheet is a scrollable card list, not a tabbed interface — tabs force navigation decisions, cards let you scan.
+3. State 3 (detail canvas) opens to the LEFT of the sidesheet, keeping the sidesheet visible as persistent navigation. This means you can jump between chat, apps, and MCP browser without closing and reopening.
+4. The fav prototype nailed this model. The best-looking prototype had better visual polish but used a nav rail with tabs instead of the three-state pattern. We take the interaction from fav, the visual style from best-looking.
+
+**Approved by:** Scott
+
+---
+
+## 2026-02-12 — Added product overview, rewrote README
+
+**Changed:** Created `product/product-overview.md` and rewrote `README.md` to lead with what Cowork.ai is before explaining the repo structure.
+
+**From → To:** README explained the repo but not the product. No standalone product overview existed. → README opens with product explanation and links to full product overview. New `/product` directory added.
+
+**Why:** Issue #3. The repo had strong technical architecture (v4), business strategy (v4), design system (v1.0), and GTM (v1.1) docs, but no single document explaining what Cowork.ai is, what it does, and who it's for. A new engineer, investor, or partner had to reverse-engineer the product from docs that assumed prior context. This isn't a cost/model/routing change, but it's structural — every other doc in this repo is more useful when the reader already understands the product.
+
+**What the product overview covers:** Plain-language product explanation, two-brain architecture summary, desktop sidecar interaction model, MCP integration, feature set (chat, apps, MCP browser, automations), target users, Go2 relationship, roadmap, and links to all detailed docs.
+
+**What we intentionally excluded (per issue discussion):** Detailed user personas, acceptance criteria, sprint roadmaps, competitive analysis matrices. Those are product management process artifacts — they belong in Linear/GitHub Issues, not in the decision layer. Cowork-brain captures reasoning, not execution tracking.
+
+**Approved by:** Scott
