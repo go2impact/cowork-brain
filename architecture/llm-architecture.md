@@ -224,7 +224,7 @@ Body:
 
 3. Low balance:
    - Warn at 20% remaining
-   - Offer auto-top-up (opt-in)
+   - Offer manual "Add credits" prompt (auto-top-up is v0.2+)
    - At $0: downgrade to free tier until recharged
 ```
 
