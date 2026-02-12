@@ -543,4 +543,5 @@ Explicitly out of scope — do not build these yet:
 ---
 
 *v4 — February 12, 2026*
-*Companion doc: "Cowork.ai — LLM Strategy & Economics" covers pricing, conversion, and worker ROI.*
+
+**See also:** [Product Overview](../product/product-overview.md) · [LLM Strategy & Economics](../strategy/llm-strategy.md) · [Design System](../design/design-system.md)

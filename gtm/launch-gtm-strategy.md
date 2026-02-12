@@ -80,7 +80,7 @@ These are people who applied to Go2 because they need income and opportunity. We
 **Timeline:** Once Phase 1 proves the product works in the wild.
 **Goal:** Take the same tool and sell it to the businesses who hire remote workers.
 
-**The audience already exists.** Go2 has sold $60M+ in staffing services to SMBs over 7 years. We have thousands of business relationships, documented in HubSpot, with detailed records of their pain points, platforms, and worker performance issues. We know what breaks in their operations because we've staffed those operations.
+**The audience already exists.** Go2 has sold $60M+ in staffing services to SMBs over 8 years. We have thousands of business relationships, documented in HubSpot, with detailed records of their pain points, platforms, and worker performance issues. We know what breaks in their operations because we've staffed those operations.
 
 **The pitch to businesses:** "Your best remote workers are already more productive than you think. Give your whole team the same advantage. Per-seat pricing, your SOPs baked in, consistent quality across every agent."
 
@@ -123,8 +123,8 @@ The in-app channel matters as much as external marketing. Once someone is using 
 
 ## What This Doc Doesn't Cover
 
-- **Tier pricing and cost economics:** See `strategy/llm-strategy.md`
-- **Technical architecture (models, routing, hardware):** See `architecture/llm-architecture.md`
+- **Tier pricing and cost economics:** See [strategy/llm-strategy.md](../strategy/llm-strategy.md)
+- **Technical architecture (models, routing, hardware):** See [architecture/llm-architecture.md](../architecture/llm-architecture.md)
 - **Email templates, ad copy, content calendar:** Not in this repo. This doc is strategy and logic, not execution assets.
 - **Specific campaign plans:** TBD as Phase 1 launches. Will add channel-specific playbooks as they're developed.
 
@@ -150,3 +150,5 @@ The in-app channel matters as much as external marketing. Once someone is using 
 
 *v1.1 — February 12, 2026*
 *This is strategy and reasoning, not campaign execution. Update as phases launch and assumptions get tested.*
+
+**See also:** [Product Overview](../product/product-overview.md) · [LLM Strategy & Economics](../strategy/llm-strategy.md) · [Design System](../design/design-system.md)
