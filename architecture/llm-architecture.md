@@ -12,6 +12,57 @@ Two brains: a local one (free, instant, uses your machine) and a cloud one (smar
 
 ---
 
+## Key Terms
+
+| Term | Meaning |
+|------|---------|
+| ANE | Apple Neural Engine — dedicated ML chip on Apple Silicon, separate from GPU/CPU |
+| GGUF | File format for quantized LLM weights (used by llama.cpp / Ollama) |
+| Core ML | Apple's framework for running ML models on-device (can target ANE, GPU, or CPU) |
+| BYOK | Bring Your Own Key — user provides their own API key instead of using Cowork credits |
+| PKCE | Proof Key for Code Exchange — secure OAuth flow for public clients (no client secret) |
+| OpenRouter | API gateway that proxies to multiple LLM providers (Anthropic, Google, etc.) |
+| RAG | Retrieval-Augmented Generation — searching local docs/data to add context to LLM prompts |
+
+---
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        User Request                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+                  ┌──────────────────┐
+                  │ Complexity Router │ (<10ms, rule-based)
+                  └────────┬─────────┘
+                           │
+              ┌────────────┼─────────────┐
+              ▼            │             ▼
+       ┌─────────────┐    │     ┌───────────────┐
+       │  Local Brain │    │     │  Cloud Brain   │
+       │ DeepSeek-R1  │    │     │  OpenRouter    │
+       │ (Ollama/GPU) │    │     │  ┌───────────┐ │
+       └──────────────┘    │     │  │Free: Gem2.5│ │
+                           │     │  │Boost:Gem3  │ │
+  ┌──────────────┐         │     │  │Pro: Sonnet │ │
+  │   The Ears   │         │     │  │Max: Opus   │ │
+  │ Whisper (ANE)│         │     │  └───────────┘ │
+  │ Always local │         │     └───────────────┘
+  └──────┬───────┘         │
+         │            ┌────┴─────┐
+         │            │  Budget  │
+         │            │  Check   │
+         │            └────┬─────┘
+         ▼                 ▼
+┌─────────────────────────────────────────────────────────────┐
+│              Activity Store (SQLite + SQLite-vec)             │
+│        Transcripts · Embeddings · Action Rules · Logs        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## v0.1 Scope: Mac Only
 
 Windows comes in v0.2. Everything below targets Apple Silicon.
@@ -253,8 +304,7 @@ Step 1: ROUTE
     │
     └── User tapped "try harder" on previous response?
         → Next tier up (show cost estimate first)
-    │
-    ▼
+
 Step 2: BUDGET CHECK
     • Free user: remaining monthly quota?
     • Paid user: within spend caps?
@@ -264,7 +314,6 @@ Step 2: BUDGET CHECK
     ▼
 Step 3: RESULT EVALUATION (post-response)
     • "Retry with smarter model? (~$X)" button on every response
-    • This is a top-revenue UI element. Make it prominent.
     • Free users: button shows upgrade CTA instead of cost
 ```
 
@@ -287,7 +336,8 @@ COMPLEX (→ cloud):
 
 Keyword list is a config array. Tune with real usage data.
 
-**v0.1 bias: route UP.** Better to spend extra cloud tokens than give a bad answer. Optimize down later with data.
+> **v0.1 Rule: When in doubt, route UP to cloud.**
+> A bad local answer costs more than a cloud token. Optimize down in v0.2 when you have real usage data to tune thresholds.
 
 ---
 
@@ -303,26 +353,15 @@ On Gemini 2.5 Flash:
 - After quota: local features continue, cloud pauses until next month
 - Reset: midnight UTC, 1st of each month
 
-**Cost to Cowork per free user: ~$0.46/month**
-
-| Scale | Monthly cost | Notes |
-|-------|-------------|-------|
-| 10K free users | $4,600 | Seed stage |
-| 50K free users | $23,000 | Growth phase |
-| 100K free users | $46,000 | Waitlist kicks in before this hurts |
-
-**"Prefer local" users on 16GB+ Macs** burn cloud tokens only on complex tasks and "try harder" requests. They might stretch free allocation to 2-3 weeks. Still hit the wall eventually — the wall is what converts.
-
 ### Cost Guardrail: Waitlist, Not Degradation
 
 ```
 Never degrade the free experience. Control volume instead.
 
 • Track: total_monthly_free_tier_cost (real-time)
-• Threshold: $50,000/month (configurable)
+• Threshold: configurable monthly cap
 • Approaching threshold: new free signups → waitlist
 • Existing users: keep full allocation
-• Waitlist priority: referrals from paid users activate faster
 • NEVER downgrade model quality for existing free users
 ```
 
@@ -449,6 +488,40 @@ Lightweight overlay/widget in UI. API endpoint for usage dashboard (Phase 2).
 16. BYOK auth
 17. Cowork Credits billing
 18. Free tier waitlist system
+
+---
+
+## Not in v0.1
+
+Explicitly out of scope — do not build these yet:
+
+- Windows support (v0.2)
+- Smart meeting detection for Whisper pre-load (v0.2 — needs calendar API + process monitoring)
+- Usage dashboard API endpoint (Phase 2)
+- Auto-top-up billing
+- Referral-based waitlist priority
+
+---
+
+## Business & Unit Economics
+
+> This section is for product/business context. Engineers can skip it — nothing here affects implementation.
+
+**Cost per free user: ~$0.46/month** (based on 625K tokens on Gemini 2.5 Flash)
+
+| Scale | Monthly cost | Notes |
+|-------|-------------|-------|
+| 10K free users | $4,600 | Seed stage |
+| 50K free users | $23,000 | Growth phase |
+| 100K free users | $46,000 | Waitlist kicks in before this hurts |
+
+**"Prefer local" users on 16GB+ Macs** burn cloud tokens only on complex tasks and "try harder" requests. They might stretch free allocation to 2-3 weeks. Still hit the wall eventually — the wall is what converts.
+
+**"Retry with smarter model"** button is a top-revenue UI element. Make it prominent. This is the natural upsell — user sees the value, taps for more.
+
+**Waitlist priority:** Referrals from paid users activate faster. Controls cost while rewarding organic growth.
+
+**Billing margin:** Cowork charges `amount × 1.055` (5.5% service fee) which covers OpenRouter's 5.5% top-up fee. Result: full amount in usable credits, Cowork earns on platform value, not inference margin.
 
 ---
 
