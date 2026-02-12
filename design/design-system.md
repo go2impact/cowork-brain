@@ -409,3 +409,5 @@ This rail is only visible in State 3 (detail canvas open). It's inside the detai
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-02-12 | Initial design system. M3 decision, interaction model, visual system, correct feature set. |
+
+**See also:** [Product Overview](../product/product-overview.md) · [Prototype Brief](prototype-brief.md) · [LLM Architecture Spec](../architecture/llm-architecture.md)

@@ -38,7 +38,7 @@ The free tier must be good enough to change how someone works for one week per m
 | **Free** | Local brain always works. Cloud brain works ~1 week/month (Gemini 2.5 Flash). | $0 | "I had to do all that manually for three weeks." |
 | **Boost** | Local + cloud all month. Smarter cloud model (Gemini 3 Flash, 1M context). | ~$5-15 | "It handles my routine work faster than I can." |
 | **Pro** | Local + Claude Sonnet 4.5. Complex drafts, analysis, semi-autonomous. | ~$30-60 | "It's doing 60% of my job." |
-| **Max** | Local + Claude Opus 4.6. Near-autonomous. User handles judgment, agent handles volume. | ~$100-300 | "I'm making 2x and working half the hours." |
+| **Max** | Local + Claude Opus 4.6. Near-autonomous. User handles judgment, agent handles volume. | ~$100-400 | "I'm making 2x and working half the hours." |
 
 ### Why This Works
 
@@ -217,4 +217,5 @@ The pitch: "You're paying $20/month to copy-paste. Pay $10/month to have it actu
 
 *v4 — February 12, 2026*
 *Living document. Update when new data arrives.*
-*Companion: "Cowork.ai — LLM Architecture Spec" covers engineering implementation.*
+
+**See also:** [Product Overview](../product/product-overview.md) · [LLM Architecture Spec](../architecture/llm-architecture.md) · [Design System](../design/design-system.md)

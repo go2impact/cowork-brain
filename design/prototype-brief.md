@@ -170,7 +170,7 @@ These are all real features that will exist in the product. They don't belong in
 
 ## Build Instructions for AI (Claude Code / Claude Artifact)
 
-1. Read `design/design-system.md` first — all visual decisions are there
+1. Read [design-system.md](design-system.md) first — all visual decisions are there
 2. Start with the three-state interaction model (closed → sidesheet → detail canvas)
 3. Get the spring animations right before adding content
 4. Mock data lives in a constants file, not inline
