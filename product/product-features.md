@@ -33,15 +33,6 @@ The sidecar only expands when you need it.
 | 2 | **Execution Modes (Hybrid Model)** | MCP (API, fast, background) + Browser/Playwright (visible, coachable). Work together on complex tasks. Configurable per app/category/action. |
 | 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. Most streams off by default. |
 
-### Cross-Cutting Sections
-
-| Section | What it covers |
-|---------|---------------|
-| **Autonomy Levels** | External = approval required, internal = can be autonomous. Promotion/demotion of categories. Execution mode preference (API vs browser). |
-| **Guardrails** | Non-promotable categories (financial, first-contact, destructive). Kill switch, rate limiting, best-effort recall. |
-| **Privacy & Data Boundaries** | What's collected, where it's stored, retention defaults, what's never collected, who sees what, surveillance-tool differentiation. |
-| **User Stories** | CX Agent (first wedge). |
-| **"What Cowork.ai Is NOT"** | Not a time tracker, not a chatbot, not employer monitoring, not a tool replacement. |
 
 ---
 
