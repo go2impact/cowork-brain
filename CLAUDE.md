@@ -27,7 +27,6 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 - `product/` — What Cowork.ai is, who it's for, roadmap. **Start here if new.**
   - `product-features.md` — Detailed feature set and capability map across all phases
 - `architecture/` — Engineering specs: models, routing, budgets, hardware (Rustan's reference)
-  - `clawdbot-extraction-proposal.md` — Patterns to extract from Clawdbot codebase for CoworkAI
 - `strategy/` — Cost models, pricing tiers, conversion economics (Scott's reference)
 - `design/` — M3 design system, three-state interaction model, prototype brief. **Read before touching any UI code.**
 - `gtm/` — Distribution channels, phased rollout, Go2 asset leverage
