@@ -261,22 +261,6 @@ Getting the positioning right matters. Cowork.ai is not:
 
 ---
 
-## Success Looks Like
-
-From the worker's perspective, Cowork.ai is working when:
-
-- You open the sidecar and your queue is already handled. You just approve and move on.
-- You finish a focus session and nothing fell through the cracks while you were heads-down.
-- Your AI drafts are so good that you approve 80%+ without editing.
-- You talk to the AI and it does what you asked on the first try.
-- You handle more volume in less time, and your clients notice the improvement — not the AI.
-- You watch the AI compose a Zendesk reply and it sounds exactly like you.
-- You coach the AI mid-task and it adjusts instantly, like a colleague who learns your style.
-
-The AI should be invisible when it's working well. If someone reads your replies and thinks "that person is great at their job," we won. If they think "that person is using AI," we have more work to do.
-
----
-
 ## See Also
 
 | Topic | Document |
