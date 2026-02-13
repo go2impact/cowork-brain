@@ -5,23 +5,25 @@
 | **Status** | Working draft (capability map, not a release scope contract) |
 | **Last Updated** | 2026-02-13 |
 | **Purpose** | Detailed feature set and capabilities for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries. |
-| **Scope Note** | This document defines the full product concept across phases. Current release scope is tracked in [`product-overview.md`](./product-overview.md) and implementation sequencing in [`../architecture/llm-architecture.md`](../architecture/llm-architecture.md). |
+
 
 ---
 
 ## The Product in One Sentence
 
-Cowork.ai Sidecar is a persistent desktop AI workspace — your "second brain" — that works inside your apps alongside you, handling your secondary work (communication, scheduling, support) while you watch, coach, and stay focused on your primary work.
+Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers your context, and acts inside your apps — surfacing what matters, answering when you ask, and handling your secondary work while you stay focused on your primary work.
 
 ---
 
-## Core Design Principle
+## Core Design Principles
 
-The sidecar doesn't replace your tools. It sits on top of them *and* operates inside them. Apps built in Google AI Studio are uploaded to the desktop app, rendered inside it, and given access to platform-provided MCPs connected to your work context.
+**Works inside your tools, not instead of them.** You still use Zendesk, Gmail, Slack. The sidecar sits on top of them (via API) and operates inside them (via browser). Apps built in Google AI Studio are uploaded to the desktop app and given access to your work context through platform-provided MCPs.
 
-You are always in control. The AI works in the open — never behind a curtain. You can intervene at any moment: pause it, correct it, take over, or hand back.
+**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it — without sending your data off-device.
 
-The sidecar only expands when you need it.
+**Pushes and pulls.** The platform comes to you when something is worth your attention (Proactive Suggestions). You come to it when you have a question (On-Demand Chat). Both paths lead to action.
+
+**You are always in control.** The AI works in the open — never behind a curtain. You can intervene at any moment: pause it, correct it, take over, or hand back.
 
 ---
 
