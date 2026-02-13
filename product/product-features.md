@@ -53,6 +53,33 @@ The sidecar only expands when you need it.
 
 ---
 
+## Feature Summary
+
+### Feature Set
+
+| # | Feature | What it does |
+|---|---------|-------------|
+| 1 | **Shadow Work Manager (Approval Queue)** | Three-stage pipeline: Monitor & Triage → Draft & Queue → Execute & Watch. A single prioritized feed across all connected apps. Five user actions: Approve, Edit & Approve, Dismiss, Snooze, Reject & Teach. Sources: Zendesk, Gmail, Slack, Calendar. Prioritization by urgency/importance, not arrival time. |
+| 2 | **Clone Mode (AI Personality Profiles)** | Captures tone/voice, response rules, SOPs, personal preferences. Supports scoped profiles (per executive, per client, per channel, per role). Auto-selects profile based on context. Learning via onboarding, Teach feedback, history bootstrap (opt-in), and keystroke-informed training (opt-in). Shadow mode for first ~20 interactions. |
+| 3 | **Live Agent (Voice & Visual Interface)** | Voice commands, conversational context, visual coaching during browser execution, take-over/hand-back, hands-free mode. Voice maps to the same action primitives as the queue. Phased: v0.x uses streaming STT+LLM+TTS, native duplex audio is future roadmap. |
+| 4 | **Task Automation & Focus Mode** | Focus Mode — notification gatekeeper during deep work, emergency breakthrough, end-of-session summary. Background Agents — Inbox Zero, Ticket Triage, Slack Digest, Calendar Guardian. Custom Automations — user-defined rules for role-specific workflows. |
+| 5 | **App Ecosystem & Execution Viewer** | App Gallery — pre-built integrations (Slack, Gmail, Zendesk, Salesforce, etc.) + custom apps via MCP. App-as-component model — each app = component + MCP connection + AI integration. Execution Viewer — dual-pane (live browser view + execution log), full audit trail. |
+| 6 | **Execution Modes (Hybrid Model)** | MCP (API, fast, background) + Browser/Playwright (visible, coachable). Work together on complex tasks. Configurable per app/category/action. |
+| 7 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. Feeds Clone Mode, Context Card, and Focus Mode. Most streams off by default. |
+| 8 | **Context Card** | Plain-language summary of current work state. Shows queue status, unread messages, next meeting, agent activity. Draws from MCP app data + activity context + live agent status. |
+
+### Cross-Cutting Sections
+
+| Section | What it covers |
+|---------|---------------|
+| **Autonomy Levels** | External = approval required, internal = can be autonomous. Promotion/demotion of categories. Execution mode preference (API vs browser). |
+| **Guardrails** | Non-promotable categories (financial, first-contact, destructive). Kill switch, rate limiting, best-effort recall. |
+| **Privacy & Data Boundaries** | What's collected, where it's stored, retention defaults, what's never collected, who sees what, surveillance-tool differentiation. |
+| **User Stories** | CX Agent, Virtual Assistant, Operations Specialist, Dev Support Engineer. |
+| **"What Cowork.ai Is NOT"** | Not a time tracker, not a chatbot, not employer monitoring, not a tool replacement. |
+
+---
+
 ## Feature Set
 
 ### 1. Shadow Work Manager (Approval Queue)
