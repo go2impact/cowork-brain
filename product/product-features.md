@@ -30,7 +30,7 @@ The sidecar only expands when you need it.
 | # | Feature | What it does |
 |---|---------|-------------|
 | 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine. |
-| 2 | **Execution Modes** | Agents + custom tools execute through two paths: API (fast, background) or Browser (visible, coachable). These capabilities are exposed to third-party apps via MCP. Configurable per app/category/action. |
+| 2 | **Execution Modes** | Agents + custom tools execute through two paths: Tools → MCP (fast, background) or Tools → Browser (visible, coachable). Configurable per app/category/action. |
 | 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. This data is exposed to apps via platform-provided MCPs. Most streams off by default. |
 
 
@@ -55,13 +55,13 @@ Each installed app shows a compact status card in the sidesheet (unread count, q
 The Execution Viewer is a dual-pane interface that shows everything the AI is doing — both the API calls happening in the background and the browser actions happening visually.
 
 - **Live browser view** — Watch the AI's browser session in real-time. See it navigate apps, fill forms, compose replies, and submit actions. Controls: Pause, Take Over (switch to your own mouse/keyboard), Resume. The browser view is only active during browser-mode execution.
-- **Execution log** — A unified timeline of all AI activity: API calls, browser actions, coaching interventions, and outcomes. Every entry shows what happened, when, in which app, and the result.
+- **Execution log** — A unified timeline of all AI activity: MCP calls, browser actions, coaching interventions, and outcomes. Every entry shows what happened, when, in which app, and the result.
 
 Example execution log:
 
 ```
-10:32:04  API     zendesk.tickets.get #4521      → read ticket
-10:32:06  API     ai.draft-reply                 → generated reply
+10:32:04  MCP     zendesk.tickets.get #4521      → read ticket
+10:32:06  MCP     ai.draft-reply                 → generated reply
 10:32:09  BROWSER navigate zendesk.com/tickets/4521
 10:32:12  BROWSER type draft into reply field
 10:32:14  USER    edited reply in browser
@@ -76,16 +76,16 @@ The Execution Viewer is always accessible. Transparency builds trust; trust enab
 
 Agents use custom tools to execute tasks through two paths:
 
-**Path 1: API (background)**
+**Path 1: Agent → Tools → MCP (background)**
 
 - Fast, reliable, runs in the background.
-- The agent calls custom tools to interact with services directly — no browser involved.
+- The agent calls custom tools, which connect to services (Zendesk, Gmail, calendars, etc.) via MCP — no browser involved.
 - Best for: data retrieval, bulk operations, well-defined API endpoints, read operations, automated categorization.
 - Example: reading 50 Zendesk tickets, categorizing emails, fetching calendar events, checking Linear for existing issues.
 
-**Path 2: Browser (visible execution)**
+**Path 2: Agent → Tools → Browser (visible execution)**
 
-- The agent drives a browser session (Playwright) for visible, coachable actions — while still using custom tools for data retrieval and background operations.
+- The agent drives a browser session (Playwright) for visible, coachable actions — while still using custom tools + MCP for data retrieval and background operations.
 - Best for: complex multi-field forms, visual verification ("does this reply look right in context?"), apps without full API support, actions the user wants to watch and coach.
 - Example: composing a nuanced Zendesk reply in the actual UI, navigating a room booking portal, submitting a multi-step form in an internal tool.
 
@@ -93,15 +93,15 @@ Agents use custom tools to execute tasks through two paths:
 
 **Both paths in one task — a Zendesk ticket reply:**
 
-1. **API** — agent reads the ticket content, customer history, and related tickets (fast, background).
-2. **API** — agent drafts the reply (fast, background).
+1. **MCP** — agent reads the ticket content, customer history, and related tickets (fast, background).
+2. **MCP** — agent drafts the reply (fast, background).
 3. Draft is reviewed and approved by the user.
 4. **Browser** — agent opens the Zendesk ticket in the actual UI, pastes the approved reply, and positions for send (visible, coachable).
 5. User watches, optionally coaches ("add a note about the refund timeline"), and the AI adjusts in real-time.
 6. **Browser** — agent clicks Send. User sees it happen.
-7. **API** — agent logs the completed action to the audit trail.
+7. **MCP** — agent logs the completed action to the audit trail.
 
-**Key principle:** Agents choose the right path for each step. API for data and background work. Browser for visible execution and user-supervised actions. The user configures which path applies per app, per category, or per action — and can override on any individual item.
+**Key principle:** Agents choose the right path for each step. Tools + MCP for data and background work. Browser for visible execution and user-supervised actions. The user configures which path applies per app, per category, or per action — and can override on any individual item.
 
 ---
 
