@@ -2,7 +2,7 @@
 
 **Status:** Working draft (capability map, not a release scope contract)
 **Last Updated:** 2026-02-13
-**Purpose:** Detailed feature set, capabilities, and user stories for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries.
+**Purpose:** Detailed feature set and capabilities for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries.
 **Scope Note:** This document defines the full product concept across phases. Current release scope is tracked in [`product-overview.md`](./product-overview.md) and implementation sequencing in [`../architecture/llm-architecture.md`](../architecture/llm-architecture.md).
 
 ---
@@ -15,9 +15,9 @@ Cowork.ai Sidecar is a persistent desktop AI workspace — your "second brain" �
 
 ## Core Design Principle
 
-The sidecar doesn't replace your tools. It sits on top of them *and* operates inside them. You still use Zendesk, Gmail, Slack, and your calendar — but the AI watches them via API, drafts responses, catches what you missed, and when you approve an action, it can execute visibly in your browser while you watch.
+The sidecar doesn't replace your tools. It sits on top of them *and* operates inside them. Apps built in Google AI Studio are uploaded to the desktop app, rendered inside it, and given access to platform-provided MCPs connected to your work context.
 
-You are always in control. The AI works in the open — never behind a curtain. You can intervene at any moment: pause it, correct it, take over, or hand back. MCP handles data retrieval and background work. The browser handles visible execution and coached actions. Both work together for complex tasks.
+You are always in control. The AI works in the open — never behind a curtain. You can intervene at any moment: pause it, correct it, take over, or hand back.
 
 The sidecar only expands when you need it.
 
@@ -30,7 +30,7 @@ The sidecar only expands when you need it.
 | # | Feature | What it does |
 |---|---------|-------------|
 | 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine. |
-| 2 | **Execution Modes (Hybrid Model)** | MCP (API, fast, background) + Browser/Playwright (visible, coachable). Work together on complex tasks. Configurable per app/category/action. |
+| 2 | **Execution Modes** | Two agent paths: Agent → MCP (API-only, fast, background) or Agent → Browser + MCP (visible, coachable). Configurable per app/category/action. |
 | 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. This data is exposed to apps via platform-provided MCPs. Most streams off by default. |
 
 
@@ -74,31 +74,32 @@ The Execution Viewer is always accessible. Transparency builds trust; trust enab
 
 ### 2. Execution Modes
 
-Cowork.ai uses a hybrid execution model: MCP (API calls) and browser automation (Playwright) work simultaneously, not as alternatives. The AI picks the right tool for each step of a task, and the user can override the default.
+AI agents execute tasks through two paths:
 
-**MCP (API execution):**
+**Path 1: Agent → MCP (API-only)**
 
 - Fast, reliable, runs in the background.
+- The agent uses MCP to call APIs directly — no browser involved.
 - Best for: data retrieval, bulk operations, well-defined API endpoints, read operations, automated categorization.
 - Example: reading 50 Zendesk tickets, categorizing emails, fetching calendar events, checking Linear for existing issues.
 
-**Browser (Playwright execution):**
+**Path 2: Agent → Browser + MCP (visible execution)**
 
-- Visible, coachable, user-supervised.
+- The agent drives a browser session (Playwright) for visible, coachable actions — while still using MCP for data retrieval and background operations.
 - Best for: complex multi-field forms, visual verification ("does this reply look right in context?"), apps without full API support, actions the user wants to watch and coach.
 - Example: composing a nuanced Zendesk reply in the actual UI, navigating a room booking portal, submitting a multi-step form in an internal tool.
 
-**How they work together — a Zendesk ticket reply:**
+**Both paths in one task — a Zendesk ticket reply:**
 
-1. **MCP** reads the ticket content, customer history, and related tickets (fast, background).
-2. **MCP** drafts the reply (fast, background).
+1. **Agent → MCP** reads the ticket content, customer history, and related tickets (fast, background).
+2. **Agent → MCP** drafts the reply (fast, background).
 3. Draft is reviewed and approved by the user.
-4. **Browser** opens the Zendesk ticket in the actual UI, pastes the approved reply, and positions for send (visible, coachable).
+4. **Agent → Browser + MCP** opens the Zendesk ticket in the actual UI, pastes the approved reply, and positions for send (visible, coachable).
 5. User watches, optionally coaches ("add a note about the refund timeline"), and the AI adjusts in real-time.
-6. **Browser** clicks Send. User sees it happen.
-7. **MCP** logs the completed action to the audit trail.
+6. **Agent → Browser** clicks Send. User sees it happen.
+7. **Agent → MCP** logs the completed action to the audit trail.
 
-**Key principle:** MCP handles data and background work. The browser handles visible execution and user-supervised actions. The user configures which mode applies per app, per category, or per action — and can override on any individual item.
+**Key principle:** Agents choose the right path for each step. MCP-only for data and background work. Browser + MCP for visible execution and user-supervised actions. The user configures which path applies per app, per category, or per action — and can override on any individual item.
 
 ---
 
@@ -120,80 +121,6 @@ The AI needs context to be useful. Activity capture provides that context — wh
 **Data flow:** Raw capture → local SQLite (GRDB, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device. Processing pipeline that discards raw input is not yet implemented — raw data currently persists locally.
 
 **Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
-
----
-
-## Autonomy Levels & The Approval Boundary
-
-The features above describe two different modes of AI action: drafting for approval and acting autonomously. This isn't a contradiction — it's a spectrum that the user controls.
-
-### The Default Rule
-
-**External-facing actions require approval. Internal actions can be autonomous.**
-
-| Action Type | Default | Examples |
-|-------------|---------|----------|
-| Send a message to a customer | Requires approval | Zendesk ticket reply, client email, support chat response |
-| Send a message to a coworker | Requires approval | Slack DM, email to teammate |
-| Organize your own workspace | Autonomous | Archive email, categorize tickets, prepare meeting briefs, compile summaries |
-| Block or redirect your own time | Autonomous | Auto-decline conflicting meetings, hold notifications during deep work |
-| Escalate to you personally | Autonomous | Push notification to your phone, break through for emergencies |
-
-The line is: **anything that another human will see as coming from you requires your approval by default. Anything that only affects your own workspace can be pre-authorized.**
-
-### Execution Mode Preference
-
-When you approve an action, you also control *how* it executes:
-
-| Execution preference | What happens | When to use it |
-|---------------------|-------------|----------------|
-| **API (instant)** | Action executes via MCP in the background. Fastest option. | Routine items you trust the AI to handle. |
-| **Browser (visible)** | Action executes in the browser. You can watch and coach. | Items you want to verify visually or coach on. |
-| **Autonomous but visible** | Action runs without approval, but executes in the browser so you can watch. | High-trust categories where you still want oversight. |
-
-Execution preference is configurable per app, per category, per contact, or per individual item. The default is API for internal actions and browser for the first N external actions (configurable, default 10) — shifting to API as trust builds.
-
-### How Users Move the Boundary
-
-The default is conservative. Over time, as trust builds, users can expand what the AI handles autonomously:
-
-- **Promote to auto-send.** After approving 50 standard Zendesk status updates without editing, you might tell the AI: "Handle routine status updates automatically. Just log them." (Note: some categories — financial commitments, first-contact messages, destructive actions — cannot be promoted. See Guardrails below.)
-- **Demote to approval-required.** If the AI auto-declines a meeting you actually wanted, you can pull that action category back: "Always ask me before declining meetings."
-- **Per-channel rules.** "Auto-send in Slack #general, but queue everything in #client-escalations."
-- **Per-contact rules.** "Auto-respond to internal team, but always queue anything from the VP of Sales."
-- **Execution mode shift.** "I trust refund replies now — switch those to API mode so I don't have to watch."
-
-Boundary changes are always user-initiated — the AI may *suggest* a promotion but never auto-promotes. Every action, regardless of autonomy level or execution mode, is logged in the Execution Viewer.
-
-### Guardrails & Incident Containment
-
-**Non-promotable categories (hard limits):**
-
-These categories always require explicit approval, regardless of trust level or autonomy settings. They cannot be promoted to autonomous:
-
-- Financial commitments — refunds, credits, pricing promises, payment adjustments.
-- First contact with a new external party — the AI never auto-sends to someone you haven't communicated with before.
-- Destructive actions — data deletion, account closure, permission revocation.
-
-**Kill switch:** A global "pause all autonomous actions" control, accessible via the sidecar UI or voice command ("stop everything"). When activated, all pending and queued autonomous actions are halted. Actions already submitted to an external platform (API call sent, message delivered) cannot be recalled from the kill switch — use platform-level undo where available (see Recall below). Unpause resumes from where it stopped — nothing is auto-retried without your confirmation.
-
-**Rate limiting:** Autonomous actions are capped per hour per app (configurable, sensible defaults TBD during v0.1 validation). If the cap is hit, remaining actions queue for approval and the user is notified immediately. This prevents stale SOPs from generating unchecked volume.
-
-**Recall (best-effort):** For platforms that support undo or recall (Gmail undo-send window, Slack message edit window), the Execution Viewer offers a time-limited recall button after autonomous sends. For platforms without recall support, the action is logged but not reversible — this limitation is disclosed when the user promotes a category to autonomous.
-
----
-
-## User Story — First Wedge
-
-### As a CX Agent (Zendesk + Slack)
-
-> I handle 40–60 Zendesk tickets per day. Half are routine: password resets, billing questions, feature requests I've answered a hundred times.
->
-> With Cowork.ai, I open my sidecar in the morning and 15 drafted replies are ready. I approve 12 via API — instant, gone. For the 2 that need tweaks, I edit and approve. For 1 tricky escalation, I switch to browser mode: the AI opens the ticket in Zendesk, types the reply I approved, and I watch. Halfway through, I say "add a note that we're waiving the fee as a one-time courtesy." The AI adjusts on the spot, I confirm, and it sends. That took 10 minutes instead of 45.
->
-> When I go heads-down on a complex escalation, the AI holds my Slack pings. When I come up for air, I get a summary instead of 47 unread messages.
-
-*Additional user stories (Virtual Assistant, Operations Specialist, Dev Support Engineer) are available in earlier revisions of this document.*
 
 ---
 
@@ -260,9 +187,5 @@ Getting the positioning right matters. Cowork.ai is not:
 
 | Date | Changes |
 |------|---------|
-| 2026-02-13 | Added guardrails & incident containment (non-promotable categories, kill switch, rate limiting, recall). Added first-wedge anchor. Fixed consent framing. |
-| 2026-02-13 | Aligned activity capture with native Mac app codebase. Added honest "current state vs. target" annotations throughout. |
-| 2026-02-13 | Clarified app-as-component developer model. |
-| 2026-02-13 | Added hybrid execution model (MCP + browser). Added Activity Capture & Context Engine. Rewrote user stories. Expanded privacy section. |
-| 2026-02-13 | Review findings resolved across all feature sections. |
-| 2026-02-13 | Initial draft: App Ecosystem, Execution Modes, Activity Capture. |
+| 2026-02-13 | Scoped down to three core features: App Ecosystem, Execution Modes, Activity Capture. Removed Approval Queue, Clone Mode, Task Automation, Live Agent, Context Card, Autonomy Levels, User Stories. |
+| 2026-02-13 | Initial draft. |
