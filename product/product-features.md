@@ -32,6 +32,7 @@ The sidecar only expands when you need it.
 | 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Apps get tools, not agents — they access platform capabilities through platform-provided MCPs (connected to Activity Capture data and connected services). The platform agent stays as the single orchestrator. |
 | 2 | **Execution Modes** | Agents + custom tools execute through two paths: Tools → MCP (fast, background) or Tools → Browser (visible, coachable). Configurable per app/category/action. |
 | 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. This data is exposed to apps via platform-provided MCPs. Most streams off by default. |
+| 4 | **Proactive Suggestions** | The platform watches captured activity and connected service signals, then surfaces native macOS notifications when something is worth acting on — an insight, an offer to help, or a ready-to-execute action. Accepting a suggestion hands off to Execution Modes. Platform-level only; third-party apps cannot trigger notifications directly. |
 
 
 ---
@@ -130,6 +131,56 @@ The AI needs context to be useful. Activity capture provides that context — wh
 
 ---
 
+### 4. Proactive Suggestions
+
+Activity Capture collects context. Apps query it on demand. But context sitting in a database is inert — nobody benefits until something acts on it. Proactive Suggestions close that gap: the platform watches captured activity and connected service signals, and surfaces a native macOS notification when something is worth your attention.
+
+Each suggestion is an entry point to action. Accepting one hands off to Execution Modes — the notification is the consent handshake before the agent acts.
+
+**Trigger types:**
+
+| Trigger | Example |
+|---------|---------|
+| **Activity pattern** | You've been on the same Zendesk ticket for 10+ minutes — "Want me to draft a reply?" |
+| **Incoming signal** | 3 new high-priority tickets just landed — "Review queue?" |
+| **Time-based context** | Your next meeting is in 5 minutes with the same customer from ticket #4521 — "Here's the context." |
+| **State transition** | You just switched from Slack to your IDE — "Hold non-urgent notifications?" |
+| **Threshold** | Email queue hit 20 unread — "Want me to triage and categorize?" |
+
+**What gets surfaced:**
+
+- **Insight** — "You've handled 12 tickets today, 3 are pending follow-up."
+- **Offer** — "Want me to draft a reply to this ticket?"
+- **Ready action** — "3 tickets are ready to close — batch-resolve?"
+- **Context bridge** — "Your 2pm is with the same customer from ticket #4521 — here's the thread history."
+
+**Notification → Execution handshake:**
+
+1. Platform detects a trigger worth surfacing.
+2. Native macOS notification appears with a title, context line, and action button(s).
+3. **Accept** → hands off to Execution Modes (MCP path, browser path, or both depending on the action).
+4. **Dismiss** → logged as a signal; repeated dismissals of the same trigger type reduce its future frequency.
+5. **Expand** → opens the relevant app card in the sidesheet for deeper interaction.
+
+**Throttling & notification fatigue:**
+
+Proactive suggestions are only useful if they don't become noise. The platform enforces:
+
+- **Priority tiers** — Urgent (time-sensitive, high-impact), Helpful (saves effort, not time-critical), Informational (FYI, lowest priority). Each tier has its own delivery rules.
+- **Hourly caps** — Urgent: uncapped (these matter). Helpful: capped per hour. Informational: capped lower. Exact thresholds TBD — will be tuned from usage data.
+- **Flow-state suppression** — If Activity Capture's focus detection identifies an extended single-app session (deep work), non-urgent suggestions are held and delivered when the user switches context.
+- **Dismissal learning** — The platform tracks accept vs. dismiss rates per trigger type. Triggers that are consistently dismissed get deprioritized; triggers that are consistently accepted get promoted.
+- **Bundling** — Related suggestions (e.g., "5 tickets are ready to close") are grouped into a single notification, not five separate ones.
+- **Cooldown** — After a dismissal, the same trigger type won't re-fire for a configurable cooldown period.
+
+**Platform-level only:**
+
+Third-party apps cannot trigger notifications directly. Apps surface their status in the sidesheet (unread counts, queue depth, next event); the platform decides what crosses the threshold for a native notification. This keeps notification volume under platform control and prevents app spam.
+
+**Privacy:** Suggestions are generated on-device from local activity data. No suggestion content leaves the device. Users can disable suggestions globally, per trigger type, or per connected service.
+
+---
+
 ## Privacy & Data Boundaries
 
 Cowork.ai observes your work context to be useful. That observation has to be clearly bounded, or "AI assistant" becomes indistinguishable from "surveillance tool." These are the rules.
@@ -193,5 +244,6 @@ Getting the positioning right matters. Cowork.ai is not:
 
 | Date | Changes |
 |------|---------|
+| 2026-02-13 | Added fourth feature: Proactive Suggestions — native macOS notifications triggered by activity patterns, incoming signals, time-based context, state transitions, and thresholds. Includes throttling model (priority tiers, hourly caps, flow-state suppression, dismissal learning, bundling). Platform-level only. |
 | 2026-02-13 | Scoped down to three core features: App Ecosystem, Execution Modes, Activity Capture. Removed Approval Queue, Clone Mode, Task Automation, Live Agent, Context Card, Autonomy Levels, User Stories. |
 | 2026-02-13 | Initial draft. |
