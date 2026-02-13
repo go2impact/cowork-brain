@@ -29,7 +29,7 @@ The sidecar only expands when you need it.
 
 | # | Feature | What it does |
 |---|---------|-------------|
-| 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine. |
+| 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Apps get tools, not agents — they access platform capabilities through platform-provided MCPs (connected to Activity Capture data and connected services). The platform agent stays as the single orchestrator. |
 | 2 | **Execution Modes** | Agents + custom tools execute through two paths: Tools → MCP (fast, background) or Tools → Browser (visible, coachable). Configurable per app/category/action. |
 | 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. This data is exposed to apps via platform-provided MCPs. Most streams off by default. |
 
@@ -42,10 +42,14 @@ The sidecar only expands when you need it.
 
 Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine — giving apps access to work context, activity history, and connected service data.
 
+**Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, routing (local vs. cloud brain), budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
+
 Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
-**Cross-app boundaries:**
+**App permissions:**
 
+- Each app declares what MCP tools it needs (like app permissions on a phone). The platform grants scoped access per app.
+- Activity context is exposed as read-only MCP resources — apps can read context to be relevant, but cannot write to the activity store.
 - Cross-app actions run only when required connections and scopes are available.
 - If a required source is disconnected or auth expires, the action pauses and the user is notified with the exact blocker and reconnect action.
 - Partial permissions degrade gracefully (read-only summaries allowed; blocked write actions require reconnect/approval).
@@ -89,7 +93,7 @@ Agents use custom tools to execute tasks through two paths:
 - Best for: complex multi-field forms, visual verification ("does this reply look right in context?"), apps without full API support, actions the user wants to watch and coach.
 - Example: composing a nuanced Zendesk reply in the actual UI, navigating a room booking portal, submitting a multi-step form in an internal tool.
 
-**Exposure to third-party apps:** Agent capabilities and custom tools are exposed to third-party apps (built in Google AI Studio) via platform-provided MCPs. This is how apps access the execution layer.
+**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to third-party apps (built in Google AI Studio) via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (local vs. cloud brain, MCP vs. browser) with full safety rails. Apps never invoke agents directly.
 
 **Both paths in one task — a Zendesk ticket reply:**
 
