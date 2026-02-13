@@ -29,9 +29,9 @@ The sidecar only expands when you need it.
 
 | # | Feature | What it does |
 |---|---------|-------------|
-| 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Those apps have access to MCPs that the platform provides. |
+| 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine. |
 | 2 | **Execution Modes (Hybrid Model)** | MCP (API, fast, background) + Browser/Playwright (visible, coachable). Work together on complex tasks. Configurable per app/category/action. |
-| 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. Most streams off by default. |
+| 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. This data is exposed to apps via platform-provided MCPs. Most streams off by default. |
 
 
 ---
@@ -40,7 +40,7 @@ The sidecar only expands when you need it.
 
 ### 1. App Ecosystem
 
-Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to MCPs that the platform provides — enabling data retrieval and action execution across connected services (Zendesk, Gmail, Slack, Salesforce, Linear, etc.).
+Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine — giving apps access to work context, activity history, and connected service data.
 
 Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
