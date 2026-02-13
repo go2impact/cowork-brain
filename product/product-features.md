@@ -1,9 +1,11 @@
 # Cowork.ai Sidecar — Product Features & Capabilities
 
-**Version:** Concept 0.3 (capability map, not a release scope contract)
+**Version:** Concept 0.6 (capability map, not a release scope contract)
 **Last Updated:** 2026-02-13
 **Purpose:** Detailed feature set, capabilities, and user stories for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries.
 **Scope Note:** This document defines the full product concept across phases. Current release scope is tracked in [`product-overview.md`](./product-overview.md) and implementation sequencing in [`../architecture/llm-architecture.md`](../architecture/llm-architecture.md).
+
+**First wedge:** CX agent + Zendesk Approval Queue + Clone Mode. One persona, one app, one loop. If this combination doesn't deliver 80%+ approve-without-editing within two weeks, nothing else in this document matters.
 
 ---
 
@@ -232,7 +234,19 @@ A library of pre-built integrations. Install the apps that match your workflow:
 - **CRM:** Salesforce, HubSpot
 - **Project Management:** Linear, Asana, Jira
 - **Calendar:** Google Calendar, Outlook
-- **Custom:** Build your own MCP integrations for internal tools
+- **Custom:** Build your own app components with custom MCP connections for internal tools — same architecture as built-in apps (see below)
+
+**What an app actually is (developer mental model):**
+
+An app is a **component with built-in MCP connectivity**. The developer mental model: import a component, render it inside the sidecar, and it can talk to MCP servers out of the box.
+
+Every app in the gallery — Zendesk, Gmail, Slack, and the rest — is built this way. Custom apps are built the same way. The component handles three things:
+
+- **Rendering** — compact status card in the sidesheet, full view in the detail canvas.
+- **MCP connection** — data retrieval and action execution against the app's backend.
+- **AI integration** — the sidecar's agents can read from and act through any installed app's MCP surface.
+
+Building a custom app means building a component that declares which MCP servers it connects to. The sidecar handles auth, rendering context, and AI access. There is no separate "integration layer" — the app *is* the integration.
 
 Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
@@ -308,30 +322,34 @@ The AI needs context to be useful. Activity capture provides that context — wh
 
 | Stream | What's captured | Default state | Used for |
 |--------|----------------|---------------|----------|
-| **Window tracking** | Active app name, window title, time spent in each app | On (can be disabled) | Context Card, flow-state detection, Focus Mode auto-activation |
-| **Keystroke capture** | Typing patterns, common phrases, greeting/sign-off habits, sentence structure | Off (opt-in only, separate consent dialog) | Clone Mode profile training (patterns only — not raw keystrokes) |
-| **Focus detection** | Extended single-app sessions, deep work patterns | On (can be disabled) | Focus Mode auto-activation, Context Card |
+| **Window & app tracking** | Active app name and path, window title, focused UI element, active browser URL — via macOS Accessibility API (AXUIElement) with CGWindowList fallback. Polled every 500ms. Browser URLs extracted via AppleScript for Safari, Chrome, Edge, Brave, and Opera. | On (can be disabled) | Context Card, flow-state detection, Focus Mode auto-activation |
+| **Keystroke & input capture** | Raw keystrokes (key code, characters, modifiers, timing) and mouse clicks (button, screen coordinates, click count, modifiers) via global CGEventTap. Raw input is stored locally and processed into communication patterns (common phrases, tone markers, structural habits) for Clone Mode. Target architecture: raw input is processed and then discarded; currently raw data persists in local storage pending the extraction pipeline. | Off (opt-in only, separate consent dialog, requires macOS Input Monitoring permission) | Clone Mode profile training, communication pattern extraction |
+| **Focus detection** | Extended single-app sessions, deep work patterns — derived from window tracking data | On (can be disabled) | Focus Mode auto-activation, Context Card |
 | **Browser activity** | Pages visited, actions taken by the AI during agent sessions | On during agent sessions only | Execution Viewer, audit trail |
+| **Screen recording** | Full-screen video capture (15fps, H.264) of all active displays — requires macOS Screen Recording permission. Used for visual context during coached agent sessions. | Off (opt-in only, separate consent dialog) | Visual context for agent coaching, execution review |
+| **Clipboard monitoring** | Text content on copy/paste events, with action type and timing. | Off (opt-in only, not yet active in current build) | Context enrichment for active tasks |
 
 **Data flow:**
 
-Raw capture → local processing → structured context (embeddings via local RAG pipeline) → agents query for relevant context at action time.
+Raw capture → local SQLite database → (planned) local processing → structured context (embeddings via local RAG pipeline) → agents query for relevant context at action time.
 
-All processing happens on-device. Raw capture data is ephemeral — it's processed into structured context and then discarded. The structured context (embeddings, extracted patterns) is what persists, within configurable retention windows.
+All capture and storage happens on-device in a local SQLite database (GRDB, WAL mode). **Current state:** captured data (activity, keystrokes, mouse events) is stored locally in raw form. **Target architecture:** a local processing pipeline will extract structured context (embeddings, communication patterns) from raw data and discard the raw input within configurable retention windows. The processing pipeline is not yet implemented — raw data currently persists locally until manually cleared or retention enforcement is built.
 
 **Clone Mode integration:**
 
-When keystroke capture is enabled, the system extracts communication patterns — not raw text — and feeds them into Clone Mode profiles. This means the AI learns your actual writing style from real usage, not just from explicit teaching. The extraction pipeline discards raw keystrokes within minutes; only the extracted patterns (phrase frequency, tone markers, structural habits) persist. Passwords and sensitive form fields are excluded from capture (detected via input field type attributes). See [Privacy & Data Boundaries](#privacy--data-boundaries) for full details.
+When keystroke capture is enabled, the system captures raw input and (once the processing pipeline is built) extracts communication patterns to feed into Clone Mode profiles — common phrases, tone markers, sentence structure, greeting/sign-off habits. This means the AI learns your actual writing style from real usage, not just from explicit teaching. **Target architecture:** the extraction pipeline processes raw keystrokes into patterns and discards raw input within minutes. **Current state:** raw keystroke data (key codes, characters, modifiers, timing) is captured and stored locally in SQLite; the pattern extraction pipeline is not yet implemented, so raw data persists locally. Password fields and sensitive form inputs will be excluded from capture (detected via input field type attributes) — this exclusion logic is planned but not yet enforced in the current build. See [Privacy & Data Boundaries](#privacy--data-boundaries) for full details.
 
 **Retention defaults (configurable):**
 
-| Data type | Default retention |
-|-----------|------------------|
-| Window tracking | Rolling 7 days |
-| Keystroke patterns (processed) | Rolling 30 days |
-| Raw keystroke data | Discarded within minutes of processing |
-| Focus detection | Rolling 7 days |
-| Browser session recordings | Rolling 30 days |
+| Data type | Default retention | Current state |
+|-----------|------------------|---------------|
+| Window & app tracking | Rolling 7 days | Stored in local SQLite; retention enforcement not yet implemented |
+| Raw keystroke & mouse data | Target: discarded within minutes of processing | Stored in local SQLite; processing pipeline not yet built |
+| Keystroke patterns (processed) | Rolling 30 days | Not yet generated (pending extraction pipeline) |
+| Focus detection | Rolling 7 days | Derived from window tracking data |
+| Screen recordings | Rolling 30 days | Module built but not active in current build |
+| Clipboard data | Rolling 7 days | Module built but not active in current build |
+| Browser session recordings | Rolling 30 days | Active during agent sessions only |
 
 ---
 
@@ -349,7 +367,7 @@ The Context Card answers one question: *What should I do next?*
 
 **Where Context Card data comes from:**
 
-The Context Card draws from three sources: (1) **connected app data** via MCP — ticket counts, unread messages, calendar events; (2) **activity context** from the [Activity Capture & Context Engine](#7-activity-capture--context-engine) — the active app name and window title, focus detection, and time-in-app data; and (3) **live agent execution status** — when the AI is actively working in the browser, the Context Card shows a live status indicator with a link to the Execution Viewer. Activity context is processed locally and never leaves your device. See [Privacy & Data Boundaries](#privacy--data-boundaries) for full details.
+The Context Card draws from three sources: (1) **connected app data** via MCP — ticket counts, unread messages, calendar events; (2) **activity context** from the [Activity Capture & Context Engine](#7-activity-capture--context-engine) — the active app name, window title, focused UI element, browser URL, focus detection, and time-in-app data (all via macOS Accessibility API); and (3) **live agent execution status** — when the AI is actively working in the browser, the Context Card shows a live status indicator with a link to the Execution Viewer. Activity context is processed and stored locally and never leaves your device. See [Privacy & Data Boundaries](#privacy--data-boundaries) for full details.
 
 ---
 
@@ -387,7 +405,7 @@ Execution preference is configurable per app, per category, per contact, or per 
 
 The default is conservative. Over time, as trust builds, users can expand what the AI handles autonomously:
 
-- **Promote from queue to auto-send.** After approving 50 standard refund replies without editing, you might tell the AI: "Handle standard refunds automatically. Just log them." That category leaves the Approval Queue and becomes a Background Agent behavior.
+- **Promote from queue to auto-send.** After approving 50 standard Zendesk status updates without editing, you might tell the AI: "Handle routine status updates automatically. Just log them." That category leaves the Approval Queue and becomes a Background Agent behavior. (Note: some categories — financial commitments, first-contact messages, destructive actions — cannot be promoted. See Guardrails below.)
 - **Demote from auto to queue.** If the Calendar Guardian auto-declines a meeting you actually wanted, you can pull calendar actions back into the Approval Queue: "Always ask me before declining meetings."
 - **Per-channel rules.** "Auto-send in Slack #general, but queue everything in #client-escalations."
 - **Per-contact rules.** "Auto-respond to internal team, but always queue anything from the VP of Sales."
@@ -395,15 +413,33 @@ The default is conservative. Over time, as trust builds, users can expand what t
 
 **How promotion happens:**
 
-Boundary changes are always user-initiated — the AI never auto-promotes an action category to autonomous. However, the AI may *suggest* a promotion when it detects a pattern: "You've approved 47 standard refund replies this month without editing. Would you like me to handle these automatically?" The user must explicitly confirm. Suggestions appear as a non-urgent queue item, not as an interrupting prompt. The user can dismiss the suggestion or tell the AI to stop suggesting for that category.
+Boundary changes are always user-initiated — the AI never auto-promotes an action category to autonomous. However, the AI may *suggest* a promotion when it detects a pattern: "You've approved 47 routine status update replies this month without editing. Would you like me to handle these automatically?" The user must explicitly confirm. Suggestions appear as a non-urgent queue item, not as an interrupting prompt. The user can dismiss the suggestion or tell the AI to stop suggesting for that category.
 
 ### The Audit Trail
 
 Regardless of autonomy level or execution mode, every action is logged in the Execution Viewer. Approved or autonomous, API or browser — the worker can always see what the AI did, when, and why. This is non-negotiable. Transparency isn't just for approval-required actions; it covers everything.
 
+### Guardrails & Incident Containment
+
+**Non-promotable categories (hard limits):**
+
+These categories always require explicit approval, regardless of trust level or autonomy settings. They cannot be promoted to autonomous:
+
+- Financial commitments — refunds, credits, pricing promises, payment adjustments.
+- First contact with a new external party — the AI never auto-sends to someone you haven't communicated with before.
+- Destructive actions — data deletion, account closure, permission revocation.
+
+**Kill switch:** A global "pause all autonomous actions" control, accessible from the Context Card and via voice command ("stop everything"). When activated, all pending and queued autonomous actions are halted. Actions already submitted to an external platform (API call sent, message delivered) cannot be recalled from the kill switch — use platform-level undo where available (see Recall below). Unpause resumes from where it stopped — nothing is auto-retried without your confirmation.
+
+**Rate limiting:** Autonomous actions are capped per hour per app (configurable, sensible defaults TBD during v0.1 validation). If the cap is hit, remaining actions queue for approval and the user is notified immediately. This prevents a drifted Clone Mode profile or stale SOP from generating unchecked volume.
+
+**Recall (best-effort):** For platforms that support undo or recall (Gmail undo-send window, Slack message edit window), the Execution Viewer offers a time-limited recall button after autonomous sends. For platforms without recall support, the action is logged but not reversible — this limitation is disclosed when the user promotes a category to autonomous.
+
 ---
 
 ## User Stories
+
+*These stories demonstrate the full range of capabilities including browser coaching for complex or high-stakes tasks. In daily use, most approved actions execute instantly via API in the background — the worker approves and moves on. Browser mode is the exception for supervised or novel work, not the default for routine items.*
 
 ### As a CX Agent (Zendesk + Slack)
 
@@ -443,22 +479,24 @@ Regardless of autonomy level or execution mode, every action is logged in the Ex
 
 Cowork.ai observes your work context to be useful. That observation has to be clearly bounded, or "AI assistant" becomes indistinguishable from "surveillance tool." These are the rules.
 
+**Known implementation gaps (current build):** Raw keystroke and mouse data persists in local SQLite because the pattern extraction pipeline is not yet built (target: process into patterns, then discard raw input within minutes). Sensitive input field exclusion (password fields, etc.) is planned but not yet enforced. Retention window enforcement is not yet implemented — data persists locally until manually cleared. These gaps are called out inline throughout this section; this summary exists so they're scannable in one place.
+
 ### What the AI observes, and where it's processed
 
 | Data type | What's collected | Processed where | Stored where | Retention |
 |-----------|-----------------|----------------|-------------|-----------|
 | **Connected app data** (Zendesk tickets, Gmail, Slack messages) | Content from apps you explicitly connect via MCP. Only the apps you install, only the channels/inboxes you authorize. | Local brain (on-device) or cloud brain — user's choice at onboarding | Persistent storage is on-device only. When cloud inference is used, content is sent transiently to the inference provider for processing. Cowork.ai's own servers do not store this content. Provider retention policies (OpenRouter, Anthropic, Google) are subject to their terms of service; Cowork.ai selects providers with zero-retention or minimal-retention API policies. See [inference providers](#who-can-see-what) below. | Persists locally until user deletes the app connection or clears data. |
-| **Activity context** (which app is in focus, how long you've been in it) | Active application name and window title — collected system-wide (not limited to connected MCP apps). This is how the Context Card knows you're "Working in Zendesk · 47 minutes" even before you connect Zendesk via MCP. Used for the Context Card and flow-state detection. Does not access app content beyond what appears in the window title. Note: window titles may contain sensitive fragments (email subjects, document names, ticket titles); activity context should be treated as potentially sensitive data. To mitigate this: activity context entries older than the rolling retention window are discarded entirely (not archived). Users can view and manually redact individual entries from their activity history at any time. Window titles are never included in telemetry, never sent off-device, and never used for any purpose beyond the Context Card and flow-state detection. | Local only. Never leaves the device. | On-device only. | Rolling window — last 7 days by default, configurable. |
-| **Keystroke capture** (typing patterns) | Communication patterns extracted from keystrokes: common phrases, sentence structure, greeting/sign-off habits. Raw keystrokes are processed and discarded within minutes. Capture excludes password fields and sensitive form inputs (detected via input field type attributes). | Local only. Never leaves the device. | Extracted patterns stored on-device only. Raw keystrokes never stored. | Patterns: rolling 30 days. Raw input: discarded within minutes. |
+| **Activity context** (which app is in focus, how long you've been in it) | Active application name, bundle path, window title, focused UI element, and active browser URL — collected system-wide via macOS Accessibility API (AXUIElement) with CGWindowList fallback, polled every 500ms. Browser URLs extracted via AppleScript for major browsers. This is how the Context Card knows you're "Working in Zendesk · 47 minutes" even before you connect Zendesk via MCP. Uses accessibility introspection beyond window titles — the app reads the focused window and UI element attributes to understand context. Note: window titles and URLs may contain sensitive fragments (email subjects, document names, ticket titles, URL parameters); activity context should be treated as potentially sensitive data. To mitigate this: activity context entries older than the rolling retention window are discarded entirely (not archived). Users can view and manually redact individual entries from their activity history at any time. Window titles and URLs are never included in telemetry, never sent off-device, and never used for any purpose beyond the Context Card and flow-state detection. | Local only. Never leaves the device. | On-device only (local SQLite). | Rolling window — last 7 days by default, configurable (retention enforcement not yet implemented). |
+| **Keystroke & input capture** (typing and mouse activity) | Raw keystrokes (key code, characters, modifiers, timing) and mouse clicks (button, screen coordinates, click count, modifiers) captured via global CGEventTap. **Target architecture:** raw input is processed into communication patterns (phrase frequency, tone markers, structural habits) and then discarded. **Current state:** raw keystroke and mouse data is stored locally in SQLite; the pattern extraction pipeline is not yet implemented. Password field and sensitive input exclusion is planned but not yet enforced. Requires macOS Input Monitoring permission. | Local only. Never leaves the device. | On-device only (local SQLite). Raw data currently persists locally; target is extracted patterns only. | Target: raw input discarded within minutes, patterns rolling 30 days. Current: raw data persists locally pending pipeline implementation. |
 | **Browser session data** (agent execution) | Pages visited, actions taken, coaching interventions — during AI-driven browser sessions only. Not a general browsing monitor. | Local only. | On-device only. | Rolling 30 days, configurable. |
 | **Clone Mode profiles** (tone, rules, SOPs) | What the user explicitly provides, teaches, or what activity-informed training extracts (opt-in). | Local only. | On-device only. | Persists until user edits or deletes. |
 | **Action history** (what the AI drafted, sent, dismissed) | Audit log of all AI actions via Execution Viewer. When an app is disconnected, action history entries for that app are retained as metadata (what action, when, which app, outcome) but content references (draft text, ticket content, message bodies) are purged. | Local only. | On-device only. | Metadata persists indefinitely for audit trail. Content references are purged on app disconnect (same as connected app data). |
 
 ### What the AI never collects
 
-- **Unsupervised screenshots or screen recordings.** Browser automation is user-initiated and user-supervised — the AI works in a browser session you can see, pause, and take over. This is not background screen capture. The AI does not silently screenshot your desktop or record your screen.
-- **Keystroke logging for surveillance.** Keystroke capture (when opted in) extracts communication patterns into Clone Mode profiles. It does not produce raw keystroke logs. Passwords and sensitive fields are excluded. Raw input is discarded within minutes. Extracted patterns are never reported to anyone — they train your AI, not an employer dashboard.
-- **Browsing history or app content outside MCP and agent sessions.** The AI sees the name and window title of the foreground app (activity context — see table above), but has no access to content inside apps unless they are connected via MCP or the AI is actively working in a browser session you initiated.
+- **Continuous background screen recording.** Screen recording capability exists (opt-in, requires macOS Screen Recording permission) but is designed for user-initiated agent coaching sessions — not ambient desktop surveillance. When enabled, it captures at 15fps during active agent sessions. It is off by default and requires explicit opt-in via a separate consent dialog. Outside of opted-in sessions, no screen content is captured.
+- **Keystroke data for surveillance or employer reporting.** Keystroke capture (when opted in) captures raw input locally for the purpose of extracting communication patterns into Clone Mode profiles. **Current state:** raw keystroke data (key codes, characters, modifiers, timing) and mouse events persist in local SQLite because the pattern extraction pipeline is not yet built. **Target architecture:** raw input is processed into patterns and discarded within minutes; only patterns persist. In both states, keystroke data never leaves the device and is never reported to employers, managers, or anyone else — it trains your AI, not a dashboard. Password field exclusion is planned but not yet enforced in the current build.
+- **Browsing history or app content outside MCP and agent sessions.** Activity context uses macOS Accessibility APIs to read the focused window's title, UI element attributes, and browser URLs. This provides richer context than window titles alone but does not access full app content (document bodies, email text, message threads). Full app content is only accessible through explicitly connected MCP apps or during user-initiated browser agent sessions.
 - **Idle/active time.** The AI doesn't track when you start working, when you stop, or how long you were "away." Activity context is used for flow-state detection, not attendance monitoring.
 - **Audio recording or storage when not activated.** If wake word is enabled, a small on-device model continuously processes audio locally to detect the trigger phrase — this is ephemeral (not recorded, not stored, not transmitted). Once triggered, the Live Agent processes speech locally via Whisper (on-device transcription), then sends the resulting text — not audio — to the LLM for response generation. Audio never leaves the device. The response is delivered as synthesized speech locally. If a future native duplex audio mode is introduced (see [Live Agent roadmap](#3-live-agent--voice--visual-interface-phased)), the user will be informed that audio data will be sent to a cloud provider, and this mode will require explicit opt-in with a clear consent dialog. If wake word is disabled, audio processing only begins on hotkey press. No ambient audio is ever recorded, stored, or sent off-device.
 
@@ -473,11 +511,11 @@ Cowork.ai observes your work context to be useful. That observation has to be cl
 
 The difference isn't just messaging — it's architecture:
 
-- **Opt-in, not opt-out.** Every MCP connection is explicitly installed by the worker. Every channel within an app is explicitly authorized. Keystroke capture requires its own separate consent dialog. The default state for app content is "AI sees nothing" — activity context (app name and window title) is enabled at setup and can be disabled.
+- **Granular consent, not blanket surveillance.** Every MCP connection is explicitly installed by the worker. Every channel within an app is explicitly authorized. Keystroke capture, screen recording, and clipboard monitoring each require their own separate consent dialog and macOS system permissions. The default state for app content is "AI sees nothing." Activity context (app name, window title, focused element, browser URL via Accessibility API) is the one stream enabled by default — it powers core features (Context Card, flow-state detection) and can be disabled at any time.
 - **Browser automation is user-initiated and user-supervised.** The AI only works in the browser when you approve an action for browser-mode execution. You watch it happen in real-time — like a screenshare with a coworker. You can pause, take over, or cancel at any point. This is not background screen control.
-- **Activity capture trains your AI, not an employer dashboard.** Keystroke patterns feed Clone Mode profiles. Window tracking feeds the Context Card. Browser session data feeds the audit trail. None of this data is reported to employers, managers, or anyone else. It exists to make your AI better at your job.
-- **Local-first processing.** Activity context, keystroke patterns, browser session data, and Clone Mode profiles never leave the device. The cloud brain processes inference requests statelessly — there's no central server accumulating your work history.
-- **Worker controls the data.** Disconnect an app, and the AI loses access immediately. App content and draft text are removed; action metadata (what happened, when) is retained for your audit trail but stripped of content. Disable keystroke capture, and pattern extraction stops immediately. Delete your data, and it's gone. No extended retention on Cowork.ai's side.
+- **Activity capture trains your AI, not an employer dashboard.** Keystroke and input data feeds Clone Mode profiles. Window and accessibility tracking feeds the Context Card. Screen recordings and browser session data feed the audit trail. None of this data is reported to employers, managers, or anyone else. It exists to make your AI better at your job.
+- **Local-first storage and processing.** Activity context, keystroke and mouse data, screen recordings, clipboard data, browser session data, and Clone Mode profiles are stored on-device only (local SQLite) and never leave the device. The cloud brain processes inference requests statelessly — there's no central server accumulating your work history.
+- **Worker controls the data.** Disconnect an app, and the AI loses access immediately. App content and draft text are removed; action metadata (what happened, when) is retained for your audit trail but stripped of content. Disable keystroke capture, and input monitoring stops immediately. Disable screen recording, and capture stops. Delete your data, and it's gone. No extended retention on Cowork.ai's side.
 - **Flow-state detection is heuristic, not tracking.** The AI notices you've been in a single app context for an extended period and offers to activate Focus Mode. It doesn't build a permanent timeline of your activity. Activity context is kept in a rolling 7-day window (configurable) for the Context Card and flow-state detection, then discarded. Action history — what the AI did, not what you did — persists for your own audit trail. The pattern is: observe → suggest → expire. Not: observe → accumulate → report.
 
 ---
@@ -525,6 +563,9 @@ The AI should be invisible when it's working well. If someone reads your replies
 
 | Version | Date | Changes |
 |---------|------|---------|
+| Concept 0.6 | 2026-02-13 | Codex review findings addressed: Added "First wedge" anchor (CX agent + Zendesk + Clone Mode) after scope note to clarify v0.1 bet. Added Guardrails & Incident Containment subsection — non-promotable categories (financial, first-contact, destructive), kill switch, rate limiting, best-effort recall. Fixed trust framing: "Opt-in, not opt-out" replaced with "Granular consent, not blanket surveillance" to accurately reflect activity context being on by default. Consolidated known implementation gaps (raw keystroke retention, missing sensitive field exclusion, missing retention enforcement) into a scannable callout at top of Privacy section. Added user stories framing paragraph clarifying that browser coaching is the exception, not the daily default. |
+| Concept 0.5 | 2026-02-13 | Activity Capture aligned with native Mac app codebase: updated all capture streams to reflect actual implementation (Accessibility API with AXUIElement introspection, CGEventTap for global keystroke + mouse capture, browser URL extraction via AppleScript, screen recording module, clipboard monitoring module). Honest "current state vs. target architecture" annotations added throughout — raw data storage in local SQLite acknowledged where the processing/extraction pipeline is not yet built. Privacy section updated: Activity context row reflects accessibility introspection beyond window titles; Keystroke capture row reflects raw data persistence; "What the AI never collects" rewritten to acknowledge screen recording capability (opt-in, session-scoped) and current raw keystroke storage. Retention table expanded with current implementation state. Surveillance differentiation updated to include all capture streams. |
+| Concept 0.4 | 2026-02-13 | App Gallery: restored the app-as-component concept — apps are components with built-in MCP connectivity. Added "What an app actually is" subsection explaining the developer mental model (import → render → MCP). Expanded "Custom" app line to reference the shared architecture. No user-facing terminology changes (apps stay "apps"). |
 | Concept 0.3 | 2026-02-13 | Hybrid execution model: added browser automation (Playwright) alongside MCP for visible, coachable execution. New sections: Execution Modes (MCP + browser working together), Activity Capture & Context Engine (window tracking, keystroke capture, focus detection, browser session data). Shadow Work Manager gains Stage 3 (Execute & Watch) with per-app/per-category API vs. browser preference. Clone Mode adds activity-informed training via opt-in keystroke capture. Live Agent expanded to voice + visual coaching with take-over/hand-back. Task Automation agents now use MCP + browser as appropriate. MCP Browser renamed to Execution Viewer with dual-pane live browser view + execution log. Context Card shows live agent execution status. Autonomy Levels add execution mode preferences including "autonomous but visible." User stories rewritten to demonstrate hybrid model with coaching. Privacy section updated: keystroke capture and browser session data added to observation table; "no screenshots/no keystrokes" replaced with honest boundaries around user-initiated browser automation and opt-in pattern extraction; surveillance differentiation expanded. |
 | Concept 0.2 | 2026-02-13 | Review findings resolved: Shadow Work Manager naming (F2), Monitor & Draft stage separation (F6), snooze return behavior (F7), Clone Mode cold-start & portability (F1, F13), Live Agent voice-to-primitive mapping & audio privacy path (F4, F12), Background Agents polling/webhook reality (F14), Focus Mode graceful degradation (F5), Context Card data sources (F8), autonomy promotion mechanism (F15), privacy mitigations for activity context (F9), telemetry re-identification (F10), employer metadata exclusion (F11). |
 | Concept 0.1 | 2026-02-13 | Initial feature set: Approval Queue, Clone Mode, Live Agent, Focus Mode, App Ecosystem, Context Card. User stories for CX, VA, Ops, Dev Support. |

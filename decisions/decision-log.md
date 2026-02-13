@@ -191,6 +191,18 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
+## 2026-02-13 — Tauri rewrite evaluated and rejected
+
+**Changed:** Evaluated starting fresh with Tauri + Mastra instead of continuing native Swift/AppKit desktop app. Decision: stay with native Swift.
+
+**Why rejected:** The native app already has working activity capture (NSWorkspace), keystroke capture (CGEventTap), Mastra sidecar management, notifications, Sparkle auto-updates, and a WKWebView bridge. Tauri would require rebuilding all of this with shakier dependencies — keystroke capture depends on a fork of `rdev` because vanilla crashes in Tauri, window tracking uses less battle-tested crates, and every macOS system API goes through Rust FFI instead of direct Swift. The only Tauri advantages (React UI speed, cross-platform) don't justify rebuilding working native plumbing.
+
+**Decision:** Continue with Swift/AppKit native app. Build product features (Approval Queue, Clone Mode, Execution Viewer) in SwiftUI.
+
+**Approved by:** Rustan
+
+---
+
 ## 2026-02-12 — Added product overview, rewrote README
 
 **Changed:** Created `product/product-overview.md` and rewrote `README.md` to lead with what Cowork.ai is before explaining the repo structure.
