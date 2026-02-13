@@ -9,31 +9,9 @@
 
 ---
 
-## How This Document Was Created
+## Sources
 
-This document was synthesized from multiple sources: repo docs, GitHub discussions, and direct product input from the founder. Everything here traces back to an identified source — written documents, GitHub threads, or explicit verbal/written input from Rustan. It's a consolidation of existing thinking into one coherent product features spec.
-
-**From this repo:**
-- [`product/product-overview.md`](./product-overview.md) — existing product positioning, two-brain architecture description, target users, and roadmap. Provided the foundation for who the product is for and the overall product thesis.
-- [`design/design-system.md`](../design/design-system.md) — the correct feature set (Chat, Apps, App Gallery, MCP Browser, Automations, Context Card), the three-state interaction model (Closed / SideSheet / Detail Canvas), and the "NOT a focus score" positioning. This defined the feature categories and UI surface model.
-- [`design/prototype-brief.md`](../design/prototype-brief.md) — the 6-screen demo flow and mock data. The Zendesk approval flow (Approve / Edit / Reject on AI-drafted responses) directly informed the Approval Queue feature description. The action set was expanded to five actions (Approve, Edit & Approve, Dismiss, Snooze, Reject & Teach) to cover the full range of queue behaviors.
-
-**From GitHub:**
-- [Issue #3](https://github.com/go2impact/cowork-brain/issues/3) (`Add Product Overview / PRD document`) — the original gap analysis identifying that no single document clearly explained what Cowork.ai does, its features, or where it's going.
-- [Scott's comment on Issue #3](https://github.com/go2impact/cowork-brain/issues/3#issuecomment-3891009312) — positioning guardrails that shaped the "What Cowork.ai Is NOT" section. Key framing: "AI coworker that actually does things in your apps," not "smart Time Doctor." No focus scores, no productivity gamification, no surveillance framing. The surface should show "here's what I handled for you" and "here's what you can now take on" — not activity logs.
-
-**From direct product input (Rustan):**
-- The "Cowork.ai Sidecar" product description that introduced three features not yet documented anywhere in the repo:
-  - **Approval Queue** ("Shadow Work" Manager) — AI monitors Slack, Gmail, Zendesk and drafts replies using Clone Mode for one-tap approval or teaching.
-  - **Live Agent** (Native Audio) — real-time voice-first interface using Gemini's native audio capabilities.
-  - **Task Automation & Focus Mode** — deep work protection barriers, notification interception, and background agents (Inbox Zero, Ticket Triage, Slack Digest, Calendar Guardian).
-- The "second brain" framing and core thesis: the sidecar handles your secondary tasks (communication, scheduling, support) so you can focus on primary work.
-- **Hybrid execution model directive:** the AI doesn't just call APIs behind the scenes — it also operates inside the user's actual apps via browser automation (Playwright), with activity capture feeding context and the user watching live and coaching in real-time. MCP for speed and background work, browser for visible execution and coaching, both together for complex tasks. The user is always in control and can intervene at any moment.
-
-**What was composed from multiple sources (not pulled from a single document):**
-- The four user stories (CX Agent, Virtual Assistant, Operations Specialist, Dev Support Engineer) — written to illustrate the features in realistic workflows, based on the target personas described in the product overview.
-- The "Success Looks Like" section — derived from the positioning guardrails (Scott's comment) and the product thesis.
-- Clone Mode as a standalone feature section — the concept came from Rustan's "Clone Mode (personalized instructions)" reference; the detailed breakdown of what it captures and how it learns was extrapolated from the Approval Queue's "teach" mechanic.
+Synthesized from: [`product-overview.md`](./product-overview.md), [`design-system.md`](../design/design-system.md), [`prototype-brief.md`](../design/prototype-brief.md), [Issue #3](https://github.com/go2impact/cowork-brain/issues/3) + [Scott's positioning guardrails](https://github.com/go2impact/cowork-brain/issues/3#issuecomment-3891009312), and direct product input from Rustan (Approval Queue, Live Agent, Task Automation, Clone Mode, hybrid execution model, second-brain thesis). User stories and "Success Looks Like" were composed from multiple sources.
 
 ---
 
@@ -177,16 +155,7 @@ But many workers operate across multiple contexts: a VA managing three executive
 - You can directly edit any profile's settings: add rules, update SOPs, adjust tone.
 - **Activity-informed training (opt-in):** With explicit consent, keystroke capture can feed observed communication patterns — common phrases, typical sentence structure, greeting/sign-off habits — into Clone Mode profiles. This is supplemental to the explicit Teach mechanic, not a replacement. Keystroke capture is off by default, requires its own consent dialog, and processes patterns (not raw keystrokes) into the profile. See [Activity Capture & Context Engine](#7-activity-capture--context-engine) for details.
 
-**Cold-start & ramp-up:**
-
-- Onboarding creates a usable default profile in ~5 minutes (role, tone, 3–5 key rules). This is enough for the AI to start drafting — not perfectly, but close enough that Edit & Approve is faster than writing from scratch.
-- **Bootstrap from history (opt-in):** With the user's explicit consent, the AI can analyze recent sent messages from connected apps (e.g., last 50 Zendesk replies, last 30 sent emails) to extract tone patterns and common response structures. This accelerates profile quality without manual setup. The user reviews and approves the extracted profile before it's activated.
-- **Shadow mode (first week):** For the first N interactions (configurable, default 20), the AI drafts but the Approval Queue highlights these as "learning drafts" — signaling that quality is still ramping. The Teach action is more prominent during this period to accelerate feedback loops.
-- Draft quality improves with each Teach interaction. Target: usable drafts within 1 day of active use, 80%+ approve-without-editing within 1–2 weeks for routine items.
-
-**Profile portability:**
-
-Clone Mode profiles are stored locally (see [Privacy & Data Boundaries](#privacy--data-boundaries)). To protect against data loss during hardware changes or reinstalls, profiles can be exported as portable files and re-imported on a new device. Export/import is manual and user-initiated — profiles are never synced to the cloud automatically.
+**Cold-start:** Onboarding creates a usable default profile in ~5 minutes. Optional history bootstrap (opt-in) analyzes recent sent messages to accelerate profile quality. For the first ~20 interactions, drafts are flagged as "learning drafts" with prominent Teach action. Target: 80%+ approve-without-editing within 1–2 weeks for routine items. Profiles are stored locally and can be exported/imported for device portability.
 
 ---
 
@@ -291,23 +260,18 @@ The Execution Viewer is a dual-pane interface that shows everything the AI is do
 - **Live browser view** — Watch the AI's browser session in real-time. See it navigate apps, fill forms, compose replies, and submit actions. Controls: Pause, Take Over (switch to your own mouse/keyboard), Resume, and voice coaching. The browser view is only active during browser-mode execution.
 - **Execution log** — A unified timeline of all AI activity: MCP calls, browser actions, coaching interventions, and outcomes. Every entry shows what happened, when, in which app, and the result.
 
-Example execution log (mixed MCP + browser entries):
+Example execution log:
 
 ```
-10:32:04  MCP   zendesk.tickets.get #4521        → read ticket content
-10:32:05  MCP   zendesk.users.get "sarah@acme"   → fetched customer context
-10:32:06  MCP   clone-mode.draft                  → generated reply draft
-10:32:08  QUEUE item #4521 approved (browser mode)
+10:32:04  MCP     zendesk.tickets.get #4521      → read ticket
+10:32:06  MCP     clone-mode.draft               → generated reply
 10:32:09  BROWSER navigate zendesk.com/tickets/4521
-10:32:11  BROWSER click "Reply" button
 10:32:12  BROWSER type draft into reply field
-10:32:14  VOICE  user: "make the opening more empathetic"
-10:32:15  BROWSER clear + retype opening paragraph
+10:32:14  VOICE   user: "make it more empathetic"
 10:32:18  BROWSER click "Submit as Solved"
-10:32:19  MCP   action-log.write                  → logged completed action
 ```
 
-This isn't hidden. The Execution Viewer is always accessible. If the AI does something you don't understand, open the viewer and trace its reasoning. Transparency builds trust; trust enables autonomy.
+The Execution Viewer is always accessible. Transparency builds trust; trust enables autonomy.
 
 ---
 
@@ -347,36 +311,18 @@ The AI needs context to be useful. Activity capture provides that context — wh
 
 **Input streams:**
 
-| Stream | What's captured | Default state | Used for |
-|--------|----------------|---------------|----------|
-| **Window & app tracking** | Active app name and path, window title, focused UI element, active browser URL — via macOS Accessibility API (AXUIElement) with CGWindowList fallback. Polled every 500ms. Browser URLs extracted via AppleScript for Safari, Chrome, Edge, Brave, and Opera. | On (can be disabled) | Context Card, flow-state detection, Focus Mode auto-activation |
-| **Keystroke & input capture** | Raw keystrokes (key code, characters, modifiers, timing) and mouse clicks (button, screen coordinates, click count, modifiers) via global CGEventTap. Raw input is stored locally and processed into communication patterns (common phrases, tone markers, structural habits) for Clone Mode. Target architecture: raw input is processed and then discarded; currently raw data persists in local storage pending the extraction pipeline. | Off (opt-in only, separate consent dialog, requires macOS Input Monitoring permission) | Clone Mode profile training, communication pattern extraction |
-| **Focus detection** | Extended single-app sessions, deep work patterns — derived from window tracking data | On (can be disabled) | Focus Mode auto-activation, Context Card |
-| **Browser activity** | Pages visited, actions taken by the AI during agent sessions | On during agent sessions only | Execution Viewer, audit trail |
-| **Screen recording** | Full-screen video capture (15fps, H.264) of all active displays — requires macOS Screen Recording permission. Used for visual context during coached agent sessions. | Off (opt-in only, separate consent dialog) | Visual context for agent coaching, execution review |
-| **Clipboard monitoring** | Text content on copy/paste events, with action type and timing. | Off (opt-in only, not yet active in current build) | Context enrichment for active tasks |
+| Stream | Default | Used for |
+|--------|---------|----------|
+| **Window & app tracking** (active app, window title, browser URL via macOS Accessibility API) | On | Context Card, Focus Mode |
+| **Keystroke & input capture** (raw input → communication patterns for Clone Mode) | Off (opt-in) | Clone Mode training |
+| **Focus detection** (extended single-app sessions, derived from window tracking) | On | Focus Mode auto-activation |
+| **Browser activity** (pages visited, actions taken during agent sessions) | On during sessions | Execution Viewer, audit trail |
+| **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
+| **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
 
-**Data flow:**
+**Data flow:** Raw capture → local SQLite (GRDB, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device. Processing pipeline that discards raw input is not yet implemented — raw data currently persists locally.
 
-Raw capture → local SQLite database → (planned) local processing → structured context (embeddings via local RAG pipeline) → agents query for relevant context at action time.
-
-All capture and storage happens on-device in a local SQLite database (GRDB, WAL mode). **Current state:** captured data (activity, keystrokes, mouse events) is stored locally in raw form. **Target architecture:** a local processing pipeline will extract structured context (embeddings, communication patterns) from raw data and discard the raw input within configurable retention windows. The processing pipeline is not yet implemented — raw data currently persists locally until manually cleared or retention enforcement is built.
-
-**Clone Mode integration:**
-
-When keystroke capture is enabled, the system captures raw input and (once the processing pipeline is built) extracts communication patterns to feed into Clone Mode profiles — common phrases, tone markers, sentence structure, greeting/sign-off habits. This means the AI learns your actual writing style from real usage, not just from explicit teaching. **Target architecture:** the extraction pipeline processes raw keystrokes into patterns and discards raw input within minutes. **Current state:** raw keystroke data (key codes, characters, modifiers, timing) is captured and stored locally in SQLite; the pattern extraction pipeline is not yet implemented, so raw data persists locally. Password fields and sensitive form inputs will be excluded from capture (detected via input field type attributes) — this exclusion logic is planned but not yet enforced in the current build. See [Privacy & Data Boundaries](#privacy--data-boundaries) for full details.
-
-**Retention defaults (configurable):**
-
-| Data type | Default retention | Current state |
-|-----------|------------------|---------------|
-| Window & app tracking | Rolling 7 days | Stored in local SQLite; retention enforcement not yet implemented |
-| Raw keystroke & mouse data | Target: discarded within minutes of processing | Stored in local SQLite; processing pipeline not yet built |
-| Keystroke patterns (processed) | Rolling 30 days | Not yet generated (pending extraction pipeline) |
-| Focus detection | Rolling 7 days | Derived from window tracking data |
-| Screen recordings | Rolling 30 days | Module built but not active in current build |
-| Clipboard data | Rolling 7 days | Module built but not active in current build |
-| Browser session recordings | Rolling 30 days | Active during agent sessions only |
+**Retention:** Window/app tracking and focus detection roll 7 days. Keystroke patterns and browser/screen recordings roll 30 days. Retention enforcement not yet implemented.
 
 ---
 
@@ -438,13 +384,7 @@ The default is conservative. Over time, as trust builds, users can expand what t
 - **Per-contact rules.** "Auto-respond to internal team, but always queue anything from the VP of Sales."
 - **Execution mode shift.** "I trust refund replies now — switch those to API mode so I don't have to watch."
 
-**How promotion happens:**
-
-Boundary changes are always user-initiated — the AI never auto-promotes an action category to autonomous. However, the AI may *suggest* a promotion when it detects a pattern: "You've approved 47 routine status update replies this month without editing. Would you like me to handle these automatically?" The user must explicitly confirm. Suggestions appear as a non-urgent queue item, not as an interrupting prompt. The user can dismiss the suggestion or tell the AI to stop suggesting for that category.
-
-### The Audit Trail
-
-Regardless of autonomy level or execution mode, every action is logged in the Execution Viewer. Approved or autonomous, API or browser — the worker can always see what the AI did, when, and why. This is non-negotiable. Transparency isn't just for approval-required actions; it covers everything.
+Boundary changes are always user-initiated — the AI may *suggest* a promotion but never auto-promotes. Every action, regardless of autonomy level or execution mode, is logged in the Execution Viewer.
 
 ### Guardrails & Incident Containment
 
@@ -464,41 +404,17 @@ These categories always require explicit approval, regardless of trust level or 
 
 ---
 
-## User Stories
-
-*These stories demonstrate the full range of capabilities including browser coaching for complex or high-stakes tasks. In daily use, most approved actions execute instantly via API in the background — the worker approves and moves on. Browser mode is the exception for supervised or novel work, not the default for routine items.*
+## User Story — First Wedge
 
 ### As a CX Agent (Zendesk + Slack)
 
-> I handle 40–60 Zendesk tickets per day for a US-based SaaS company. Half of them are routine: password resets, billing questions, feature requests I've answered a hundred times.
+> I handle 40–60 Zendesk tickets per day. Half are routine: password resets, billing questions, feature requests I've answered a hundred times.
 >
-> With Cowork.ai, I open my sidecar in the morning and the Approval Queue has 15 drafted replies ready. I approve 12 via API — instant, gone. For the 2 that need tweaks, I edit and approve. For 1 tricky escalation, I switch to browser mode: the AI opens the ticket in Zendesk, types the reply I approved, and I watch. Halfway through, I say "add a note that we're waiving the fee as a one-time courtesy." The AI adjusts the reply on the spot, I confirm, and it sends. That took 10 minutes instead of 45.
+> With Cowork.ai, I open my sidecar in the morning and the Approval Queue has 15 drafted replies ready. I approve 12 via API — instant, gone. For the 2 that need tweaks, I edit and approve. For 1 tricky escalation, I switch to browser mode: the AI opens the ticket in Zendesk, types the reply I approved, and I watch. Halfway through, I say "add a note that we're waiving the fee as a one-time courtesy." The AI adjusts on the spot, I confirm, and it sends. That took 10 minutes instead of 45.
 >
 > When I go heads-down on a complex escalation, Focus Mode holds my Slack pings. When I come up for air, I get a summary instead of 47 unread messages.
 
-### As a Virtual Assistant (Gmail + Calendar + Slack)
-
-> I manage communications for three executives. My day is constant context-switching: draft an email for one, schedule a call for another, respond to Slack messages for the third.
->
-> Clone Mode has separate profiles for each exec — different tones, different rules, different sign-offs. When a meeting request comes in for Executive A, the AI knows to check their "no meetings on Wednesday" rule before drafting a response. The Calendar Guardian handles 80% of scheduling back-and-forth via MCP in the background.
->
-> For a complicated multi-party scheduling request, I switch to browser mode and watch the AI navigate Google Calendar — checking availability across time zones, finding a room, and drafting the invite. I coach it: "Move that to Thursday — she's traveling Wednesday." The AI adjusts and sends. I went from spending 3 hours/day on scheduling to 30 minutes.
-
-### As an Operations Specialist (Multi-tool)
-
-> I do a bit of everything: data entry, report generation, inbox management, process documentation. My work spans 6 different tools.
->
-> The App Gallery lets me connect all of them. The Context Card shows me a unified view: what's pending in each tool, what's overdue, what the AI already handled. I used to start my day with 20 minutes of "checking in" across tools. Now I start with the Context Card and go straight to what matters.
->
-> My custom automation — "every Monday, pull last week's metrics from three sources and compile a draft report" — runs via MCP to gather data, then opens the reporting portal in the browser to submit. I watch the submission step because the portal has a multi-step form the API doesn't cover. The AI fills it in, I verify the numbers, and it submits. Saves me 2 hours every week.
-
-### As a Dev Support Engineer (Zendesk + Linear + Slack)
-
-> Bug reports come in through Zendesk, but I need to check Linear for existing tickets and Slack for engineering context before responding.
->
-> The Ticket Triage Agent cross-references incoming Zendesk reports against open Linear issues via MCP. If there's a match, it pre-populates my draft with the relevant engineering context: "This is a known issue (LINEAR-1234), fix is in progress, ETA next release." I just approve — sends via API instantly.
->
-> For new bugs, the AI drafts an acknowledgment to the customer and a Linear ticket for engineering. Both land in my Approval Queue. I approve the customer reply and then switch to browser mode for the Linear ticket — I watch the AI fill in the fields, coach it on severity ("make that a P1, not P2"), and it submits. Both reviewed and handled in under a minute.
+*Additional user stories (Virtual Assistant, Operations Specialist, Dev Support Engineer) are available in earlier revisions of this document.*
 
 ---
 
@@ -506,44 +422,35 @@ These categories always require explicit approval, regardless of trust level or 
 
 Cowork.ai observes your work context to be useful. That observation has to be clearly bounded, or "AI assistant" becomes indistinguishable from "surveillance tool." These are the rules.
 
-**Known implementation gaps (current build):** Raw keystroke and mouse data persists in local SQLite because the pattern extraction pipeline is not yet built (target: process into patterns, then discard raw input within minutes). Sensitive input field exclusion (password fields, etc.) is planned but not yet enforced. Retention window enforcement is not yet implemented — data persists locally until manually cleared. These gaps are called out inline throughout this section; this summary exists so they're scannable in one place.
+### What the AI observes
 
-### What the AI observes, and where it's processed
-
-| Data type | What's collected | Processed where | Stored where | Retention |
-|-----------|-----------------|----------------|-------------|-----------|
-| **Connected app data** (Zendesk tickets, Gmail, Slack messages) | Content from apps you explicitly connect via MCP. Only the apps you install, only the channels/inboxes you authorize. | Local brain (on-device) or cloud brain — user's choice at onboarding | Persistent storage is on-device only. When cloud inference is used, content is sent transiently to the inference provider for processing. Cowork.ai's own servers do not store this content. Provider retention policies (OpenRouter, Anthropic, Google) are subject to their terms of service; Cowork.ai selects providers with zero-retention or minimal-retention API policies. See [inference providers](#who-can-see-what) below. | Persists locally until user deletes the app connection or clears data. |
-| **Activity context** (which app is in focus, how long you've been in it) | Active application name, bundle path, window title, focused UI element, and active browser URL — collected system-wide via macOS Accessibility API (AXUIElement) with CGWindowList fallback, polled every 500ms. Browser URLs extracted via AppleScript for major browsers. This is how the Context Card knows you're "Working in Zendesk · 47 minutes" even before you connect Zendesk via MCP. Uses accessibility introspection beyond window titles — the app reads the focused window and UI element attributes to understand context. Note: window titles and URLs may contain sensitive fragments (email subjects, document names, ticket titles, URL parameters); activity context should be treated as potentially sensitive data. To mitigate this: activity context entries older than the rolling retention window are discarded entirely (not archived). Users can view and manually redact individual entries from their activity history at any time. Window titles and URLs are never included in telemetry, never sent off-device, and never used for any purpose beyond the Context Card and flow-state detection. | Local only. Never leaves the device. | On-device only (local SQLite). | Rolling window — last 7 days by default, configurable (retention enforcement not yet implemented). |
-| **Keystroke & input capture** (typing and mouse activity) | Raw keystrokes (key code, characters, modifiers, timing) and mouse clicks (button, screen coordinates, click count, modifiers) captured via global CGEventTap. **Target architecture:** raw input is processed into communication patterns (phrase frequency, tone markers, structural habits) and then discarded. **Current state:** raw keystroke and mouse data is stored locally in SQLite; the pattern extraction pipeline is not yet implemented. Password field and sensitive input exclusion is planned but not yet enforced. Requires macOS Input Monitoring permission. | Local only. Never leaves the device. | On-device only (local SQLite). Raw data currently persists locally; target is extracted patterns only. | Target: raw input discarded within minutes, patterns rolling 30 days. Current: raw data persists locally pending pipeline implementation. |
-| **Browser session data** (agent execution) | Pages visited, actions taken, coaching interventions — during AI-driven browser sessions only. Not a general browsing monitor. | Local only. | On-device only. | Rolling 30 days, configurable. |
-| **Clone Mode profiles** (tone, rules, SOPs) | What the user explicitly provides, teaches, or what activity-informed training extracts (opt-in). | Local only. | On-device only. | Persists until user edits or deletes. |
-| **Action history** (what the AI drafted, sent, dismissed) | Audit log of all AI actions via Execution Viewer. When an app is disconnected, action history entries for that app are retained as metadata (what action, when, which app, outcome) but content references (draft text, ticket content, message bodies) are purged. | Local only. | On-device only. | Metadata persists indefinitely for audit trail. Content references are purged on app disconnect (same as connected app data). |
+| Data type | Stored where | Retention |
+|-----------|-------------|-----------|
+| **Connected app data** (Zendesk, Gmail, Slack) — only apps/channels you explicitly connect | On-device. Cloud inference is transient (zero-retention providers). | Until user disconnects app. |
+| **Activity context** (active app, window title, browser URL via Accessibility API) | On-device only. Never leaves device. | Rolling 7 days. |
+| **Keystroke & input capture** (opt-in, raw → patterns for Clone Mode) | On-device only. | Target: raw discarded within minutes; patterns roll 30 days. |
+| **Browser session data** (agent execution only, not general browsing) | On-device only. | Rolling 30 days. |
+| **Clone Mode profiles** | On-device only. | Until user deletes. |
+| **Action history** (audit log of all AI actions) | On-device only. | Metadata persists; content purged on app disconnect. |
 
 ### What the AI never collects
 
-- **Continuous background screen recording.** Screen recording capability exists (opt-in, requires macOS Screen Recording permission) but is designed for user-initiated agent coaching sessions — not ambient desktop surveillance. When enabled, it captures at 15fps during active agent sessions. It is off by default and requires explicit opt-in via a separate consent dialog. Outside of opted-in sessions, no screen content is captured.
-- **Keystroke data for surveillance or employer reporting.** Keystroke capture (when opted in) captures raw input locally for the purpose of extracting communication patterns into Clone Mode profiles. **Current state:** raw keystroke data (key codes, characters, modifiers, timing) and mouse events persist in local SQLite because the pattern extraction pipeline is not yet built. **Target architecture:** raw input is processed into patterns and discarded within minutes; only patterns persist. In both states, keystroke data never leaves the device and is never reported to employers, managers, or anyone else — it trains your AI, not a dashboard. Password field exclusion is planned but not yet enforced in the current build.
-- **Browsing history or app content outside MCP and agent sessions.** Activity context uses macOS Accessibility APIs to read the focused window's title, UI element attributes, and browser URLs. This provides richer context than window titles alone but does not access full app content (document bodies, email text, message threads). Full app content is only accessible through explicitly connected MCP apps or during user-initiated browser agent sessions.
-- **Idle/active time.** The AI doesn't track when you start working, when you stop, or how long you were "away." Activity context is used for flow-state detection, not attendance monitoring.
-- **Audio recording or storage when not activated.** If wake word is enabled, a small on-device model continuously processes audio locally to detect the trigger phrase — this is ephemeral (not recorded, not stored, not transmitted). Once triggered, the Live Agent processes speech locally via Whisper (on-device transcription), then sends the resulting text — not audio — to the LLM for response generation. Audio never leaves the device. The response is delivered as synthesized speech locally. If a future native duplex audio mode is introduced (see [Live Agent roadmap](#3-live-agent--voice--visual-interface-phased)), the user will be informed that audio data will be sent to a cloud provider, and this mode will require explicit opt-in with a clear consent dialog. If wake word is disabled, audio processing only begins on hotkey press. No ambient audio is ever recorded, stored, or sent off-device.
+- **Continuous screen recording** — screen capture is opt-in, agent-session-only, not ambient surveillance.
+- **Keystroke data for employer reporting** — keystroke capture trains your Clone Mode, never reported to anyone else. Never leaves device.
+- **Browsing history outside agent sessions** — activity context reads window titles and URLs for context, not full app content.
+- **Idle/active time** — no attendance monitoring. Activity context is for flow-state detection only.
+- **Audio when not activated** — wake word detection is ephemeral on-device processing. Audio never leaves the device.
 
 ### Who can see what
 
-- **The worker** sees everything: all observed data, all AI actions, all audit logs via the Execution Viewer.
-- **The employer** sees nothing by default. If the worker is on an enterprise plan, aggregate and anonymized data (team-level patterns, not individual activity) can be shared — but only with the worker's explicit opt-in consent. No per-worker dashboards for managers. No screen time reports. This includes action metadata — the audit trail of what the AI did and when is the worker's personal record. It is never surfaced to employers, even on enterprise plans, even in aggregate. Employer-visible aggregate data covers only feature adoption and team-level volume patterns, never per-worker action logs.
-- **Cowork.ai (the company)** sees pseudonymized usage telemetry for product improvement. Telemetry includes: feature usage counts, error rates, model latency, and tier/plan metadata. User identifiers are pseudonymized (replaced with opaque IDs — not anonymous, but not directly identifying). Telemetry does not include: message content, ticket data, draft text, app-specific data, activity context (app names/window titles), keystroke data, or browser session data. Telemetry is aggregated for analysis but collected at the pseudonymized-user level. On enterprise plans, pseudonymized telemetry IDs are cryptographically separated from billing/account identifiers — Cowork.ai's analytics pipeline cannot join telemetry records to employer billing records or individual worker identities. This separation is enforced at the infrastructure level, not by policy alone.
-- **Third-party inference providers** (OpenRouter, Anthropic, Google — depending on tier) receive connected app content transiently when cloud inference is used. Cowork.ai selects providers with zero-retention or minimal-retention API terms. The worker chooses local-only or cloud processing at onboarding and can switch anytime. When using local brain only, no content reaches any third party.
+- **The worker** — everything: all data, all actions, all audit logs.
+- **The employer** — nothing by default. Enterprise plans allow opt-in aggregate data (team-level only, never per-worker action logs).
+- **Cowork.ai** — pseudonymized usage telemetry only (feature counts, error rates, latency). No message content, no activity context, no keystroke data.
+- **Inference providers** — connected app content transiently during cloud inference (zero-retention providers). Local-only mode sends nothing.
 
 ### How this is different from surveillance tools
 
-The difference isn't just messaging — it's architecture:
-
-- **Granular consent, not blanket surveillance.** Every MCP connection is explicitly installed by the worker. Every channel within an app is explicitly authorized. Keystroke capture, screen recording, and clipboard monitoring each require their own separate consent dialog and macOS system permissions. The default state for app content is "AI sees nothing." Activity context (app name, window title, focused element, browser URL via Accessibility API) is the one stream enabled by default — it powers core features (Context Card, flow-state detection) and can be disabled at any time.
-- **Browser automation is user-initiated and user-supervised.** The AI only works in the browser when you approve an action for browser-mode execution. You watch it happen in real-time — like a screenshare with a coworker. You can pause, take over, or cancel at any point. This is not background screen control.
-- **Activity capture trains your AI, not an employer dashboard.** Keystroke and input data feeds Clone Mode profiles. Window and accessibility tracking feeds the Context Card. Screen recordings and browser session data feed the audit trail. None of this data is reported to employers, managers, or anyone else. It exists to make your AI better at your job.
-- **Local-first storage and processing.** Activity context, keystroke and mouse data, screen recordings, clipboard data, browser session data, and Clone Mode profiles are stored on-device only (local SQLite) and never leave the device. The cloud brain processes inference requests statelessly — there's no central server accumulating your work history.
-- **Worker controls the data.** Disconnect an app, and the AI loses access immediately. App content and draft text are removed; action metadata (what happened, when) is retained for your audit trail but stripped of content. Disable keystroke capture, and input monitoring stops immediately. Disable screen recording, and capture stops. Delete your data, and it's gone. No extended retention on Cowork.ai's side.
-- **Flow-state detection is heuristic, not tracking.** The AI notices you've been in a single app context for an extended period and offers to activate Focus Mode. It doesn't build a permanent timeline of your activity. Activity context is kept in a rolling 7-day window (configurable) for the Context Card and flow-state detection, then discarded. Action history — what the AI did, not what you did — persists for your own audit trail. The pattern is: observe → suggest → expire. Not: observe → accumulate → report.
+The difference is architectural, not just messaging: granular per-stream consent (not blanket surveillance), browser automation is user-initiated and user-supervised (not background control), all capture trains your AI (not an employer dashboard), local-first storage (nothing accumulates on a central server), and the worker controls the data (disconnect = immediate loss of access, delete = gone).
 
 ---
 
