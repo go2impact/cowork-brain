@@ -29,7 +29,7 @@ The sidecar only expands when you need it.
 
 | # | Feature | What it does |
 |---|---------|-------------|
-| 1 | **App Ecosystem** | App Gallery — pre-built integrations (Slack, Gmail, Zendesk, Salesforce, etc.). Apps connect to Cowork.ai's exposed MCP features for data retrieval and action execution. |
+| 1 | **App Ecosystem** | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Those apps have access to MCPs that the platform provides. |
 | 2 | **Execution Modes (Hybrid Model)** | MCP (API, fast, background) + Browser/Playwright (visible, coachable). Work together on complex tasks. Configurable per app/category/action. |
 | 3 | **Activity Capture & Context Engine** | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. Most streams off by default. |
 
@@ -49,17 +49,9 @@ The sidecar only expands when you need it.
 
 ### 1. App Ecosystem
 
-**App Gallery:**
+Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to MCPs that the platform provides — enabling data retrieval and action execution across connected services (Zendesk, Gmail, Slack, Salesforce, Linear, etc.).
 
-A library of pre-built integrations. Install the apps that match your workflow:
-
-- **Communication:** Slack, Gmail, Microsoft Teams
-- **Support:** Zendesk, Freshdesk, Intercom
-- **CRM:** Salesforce, HubSpot
-- **Project Management:** Linear, Asana, Jira
-- **Calendar:** Google Calendar, Outlook
-
-Apps connect to Cowork.ai's exposed MCP features for data retrieval and action execution. Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
+Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
 **Cross-app boundaries:**
 
