@@ -1,9 +1,11 @@
 # Cowork.ai Sidecar — Product Features & Capabilities
 
-**Status:** Working draft (capability map, not a release scope contract)
-**Last Updated:** 2026-02-13
-**Purpose:** Detailed feature set and capabilities for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries.
-**Scope Note:** This document defines the full product concept across phases. Current release scope is tracked in [`product-overview.md`](./product-overview.md) and implementation sequencing in [`../architecture/llm-architecture.md`](../architecture/llm-architecture.md).
+| | |
+|---|---|
+| **Status** | Working draft (capability map, not a release scope contract) |
+| **Last Updated** | 2026-02-13 |
+| **Purpose** | Detailed feature set and capabilities for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries. |
+| **Scope Note** | This document defines the full product concept across phases. Current release scope is tracked in [`product-overview.md`](./product-overview.md) and implementation sequencing in [`../architecture/llm-architecture.md`](../architecture/llm-architecture.md). |
 
 ---
 
