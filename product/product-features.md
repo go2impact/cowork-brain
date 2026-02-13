@@ -119,7 +119,7 @@ The AI needs context to be useful. Activity capture provides that context — wh
 
 **Data flow:** Raw capture → local SQLite (GRDB, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device. Processing pipeline that discards raw input is not yet implemented — raw data currently persists locally.
 
-**Retention:** Window/app tracking and focus detection roll 7 days. Keystroke patterns and browser/screen recordings roll 30 days. Retention enforcement not yet implemented.
+**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
 
 ---
 
@@ -206,9 +206,9 @@ Cowork.ai observes your work context to be useful. That observation has to be cl
 | Data type | Stored where | Retention |
 |-----------|-------------|-----------|
 | **Connected app data** (Zendesk, Gmail, Slack) — only apps/channels you explicitly connect | On-device. Cloud inference is transient (zero-retention providers). | Until user disconnects app. |
-| **Activity context** (active app, window title, browser URL via Accessibility API) | On-device only. Never leaves device. | Rolling 7 days. |
-| **Keystroke & input capture** (opt-in, raw → communication patterns) | On-device only. | Target: raw discarded within minutes; patterns roll 30 days. |
-| **Browser session data** (agent execution only, not general browsing) | On-device only. | Rolling 30 days. |
+| **Activity context** (active app, window title, browser URL via Accessibility API) | On-device only. Never leaves device. | Rolling X days. |
+| **Keystroke & input capture** (opt-in, raw → communication patterns) | On-device only. | Target: raw discarded within minutes; patterns roll X days. |
+| **Browser session data** (agent execution only, not general browsing) | On-device only. | Rolling X days. |
 | **AI profiles** (tone, rules, SOPs) | On-device only. | Until user deletes. |
 | **Action history** (audit log of all AI actions) | On-device only. | Metadata persists; content purged on app disconnect. |
 
