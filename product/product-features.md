@@ -5,14 +5,6 @@
 **Purpose:** Detailed feature set, capabilities, and user stories for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries.
 **Scope Note:** This document defines the full product concept across phases. Current release scope is tracked in [`product-overview.md`](./product-overview.md) and implementation sequencing in [`../architecture/llm-architecture.md`](../architecture/llm-architecture.md).
 
-**First wedge:** CX agent + Zendesk. One persona, one app, one loop.
-
----
-
-## Sources
-
-Synthesized from: [`product-overview.md`](./product-overview.md), [`design-system.md`](../design/design-system.md), [`prototype-brief.md`](../design/prototype-brief.md), [Issue #3](https://github.com/go2impact/cowork-brain/issues/3) + [Scott's positioning guardrails](https://github.com/go2impact/cowork-brain/issues/3#issuecomment-3891009312), and direct product input from Rustan (hybrid execution model, second-brain thesis). User stories and "Success Looks Like" were composed from multiple sources.
-
 ---
 
 ## The Product in One Sentence
@@ -71,25 +63,25 @@ Apps connect to Cowork.ai's exposed MCP features for data retrieval and action e
 
 **Cross-app boundaries:**
 
-- Cross-app automations run only when required connections and scopes are available.
-- If a required source is disconnected or auth expires, the automation pauses and creates a queue item with the exact blocker and reconnect action.
+- Cross-app actions run only when required connections and scopes are available.
+- If a required source is disconnected or auth expires, the action pauses and the user is notified with the exact blocker and reconnect action.
 - Partial permissions degrade gracefully (read-only summaries allowed; blocked write actions require reconnect/approval).
 
 **Execution Viewer — Full Transparency:**
 
 The Execution Viewer is a dual-pane interface that shows everything the AI is doing — both the API calls happening in the background and the browser actions happening visually.
 
-- **Live browser view** — Watch the AI's browser session in real-time. See it navigate apps, fill forms, compose replies, and submit actions. Controls: Pause, Take Over (switch to your own mouse/keyboard), Resume, and voice coaching. The browser view is only active during browser-mode execution.
+- **Live browser view** — Watch the AI's browser session in real-time. See it navigate apps, fill forms, compose replies, and submit actions. Controls: Pause, Take Over (switch to your own mouse/keyboard), Resume. The browser view is only active during browser-mode execution.
 - **Execution log** — A unified timeline of all AI activity: MCP calls, browser actions, coaching interventions, and outcomes. Every entry shows what happened, when, in which app, and the result.
 
 Example execution log:
 
 ```
 10:32:04  MCP     zendesk.tickets.get #4521      → read ticket
-10:32:06  MCP     clone-mode.draft               → generated reply
+10:32:06  MCP     ai.draft-reply                 → generated reply
 10:32:09  BROWSER navigate zendesk.com/tickets/4521
 10:32:12  BROWSER type draft into reply field
-10:32:14  VOICE   user: "make it more empathetic"
+10:32:14  USER    edited reply in browser
 10:32:18  BROWSER click "Submit as Solved"
 ```
 
