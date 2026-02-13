@@ -25,7 +25,9 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 ## Repo Structure
 
 - `product/` — What Cowork.ai is, who it's for, roadmap. **Start here if new.**
+  - `product-features.md` — Detailed feature set and capability map across all phases
 - `architecture/` — Engineering specs: models, routing, budgets, hardware (Rustan's reference)
+  - `clawdbot-extraction-proposal.md` — Patterns to extract from Clawdbot codebase for CoworkAI
 - `strategy/` — Cost models, pricing tiers, conversion economics (Scott's reference)
 - `design/` — M3 design system, three-state interaction model, prototype brief. **Read before touching any UI code.**
 - `gtm/` — Distribution channels, phased rollout, Go2 asset leverage
@@ -42,6 +44,19 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 - **Desktop:** Native Swift/AppKit (Tauri was evaluated and rejected — see decision log Feb 13)
 - **Design system:** Material Design 3 (M3) mandatory, dark theme first, maps to Tailwind
 - **v0.1 scope:** Mac-only (16GB+ Apple Silicon for local, 8GB gets cloud-only)
+
+## Common Tasks
+
+**Adding a decision log entry:**
+1. Add entry to `decisions/decision-log.md` with full format (see CONTRIBUTING.md)
+2. Update the changelog at the bottom of any doc that changed
+3. Check cross-document consistency (model/cost/UI changes ripple)
+
+**Updating a spec doc:**
+1. Edit the doc
+2. Update its changelog
+3. If it affects cost/models/routing/tiers/privacy/hardware → add decision log entry
+4. Check if `repos.md` or other docs reference the changed values
 
 ## Cross-Document Consistency
 

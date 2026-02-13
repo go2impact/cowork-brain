@@ -124,7 +124,7 @@ This IS the hybrid execution model. The AI needs to click buttons, fill forms, n
 Multi-layer command approval: deny → allowlist → full. Quote-aware shell parsing that respects single/double quotes and escapes. Splits by chain operators (&&, ||, ;) separately from pipes. Rejects backgrounding (&), redirection (>/<), backticks, and $() substitution. Safe binary whitelist (jq, grep, cut, sort, etc.).
 
 **Why CoworkAI needs it:**
-The product-features.md now specifies autonomy levels including "autonomous but visible." When the AI executes shell commands (install dependencies, run scripts, git operations), it needs the same safety guardrails. The Approval Queue feature also needs a backend model for what requires approval vs. what's pre-approved.
+Execution modes include visible browser actions where the user can pause, take over, and resume. When the AI executes shell commands (install dependencies, run scripts, git operations), it needs the same safety guardrails. The per-app/per-category configurability also needs a backend model for what requires approval vs. what's pre-approved.
 
 **What to extract:**
 - Quote-aware command parsing
@@ -135,7 +135,7 @@ The product-features.md now specifies autonomy levels including "autonomous but 
 
 **Where it goes in CoworkAI:**
 - `src/safety/exec-approvals.ts` in coworkai-mastra
-- Wired into the Approval Queue and autonomy level system
+- Wired into execution mode configurability (per-app/per-category approval rules)
 
 **Estimated effort:** 3-4 days (adapt, don't copy — CoworkAI's approval UI is different from clawdbot's socket-based flow)
 
@@ -168,7 +168,7 @@ Browser automation + shell execution on the user's machine means env vars could 
 Profile-based tool allowlisting: minimal, coding, messaging, full. Tool groups (group:fs, group:runtime, group:web). Per-provider overrides. Deny-always-wins resolution. Per-sender group policies for messaging channels.
 
 **Why CoworkAI needs it:**
-CoworkAI's autonomy levels (Suggest Only → Auto-pilot) map directly to tool profiles. "Suggest Only" = minimal tools (read-only). "Auto-pilot" = full tools. The product-features.md also specifies per-app/per-category configurability — that's per-provider overrides.
+CoworkAI's execution modes (MCP background vs. browser visible) need different tool access profiles. Background MCP execution needs full API tools; browser execution needs Playwright tools plus user-override controls. The product-features.md also specifies per-app/per-category configurability — that's per-provider overrides.
 
 **What to extract:**
 - Profile → allowed tools resolution
@@ -178,7 +178,7 @@ CoworkAI's autonomy levels (Suggest Only → Auto-pilot) map directly to tool pr
 
 **Where it goes in CoworkAI:**
 - `src/safety/tool-policy.ts` in coworkai-mastra
-- Wired to autonomy level settings from onboarding config
+- Wired to per-app/per-category execution mode settings from onboarding config
 
 **Estimated effort:** 2 days
 
@@ -235,7 +235,7 @@ CoworkAI's product-features.md describes an App Ecosystem where users can instal
 Multi-level config hierarchy (global → agent defaults → per-agent → per-provider). Zod-based validation with custom post-validators. Legacy config detection with migration hints. Sensitive field storage with 0600 permissions.
 
 **Why CoworkAI needs it:**
-CoworkAI already has onboarding config (`user_config` table). But as the product grows (multiple autonomy levels, per-app rules, browser preferences, activity capture settings), config will get complex. A validation pipeline prevents users from getting into broken states.
+CoworkAI already has onboarding config (`user_config` table). But as the product grows (per-app execution rules, browser preferences, activity capture settings), config will get complex. A validation pipeline prevents users from getting into broken states.
 
 **What to extract:**
 - Zod schema + custom validator pattern
