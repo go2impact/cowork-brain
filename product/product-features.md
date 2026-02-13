@@ -9,6 +9,15 @@
 
 ---
 
+## Scope
+
+This document covers **user-facing features and capabilities**. The following are intentionally out of scope here — they live in the architecture and strategy docs:
+
+- **Local LLM / two-brain architecture** (local DeepSeek + cloud OpenRouter, complexity router, thermal management) → [llm-architecture.md](../architecture/llm-architecture.md)
+- **Billing, token budgets, and pricing tiers** (Cowork Credits, free tier quota, spend caps, BYOK) → [llm-architecture.md](../architecture/llm-architecture.md) and [llm-strategy.md](../strategy/llm-strategy.md)
+
+---
+
 ## The Product in One Sentence
 
 Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers your context, and acts inside your apps — surfacing what matters, answering when you ask, and handling your secondary work while you stay focused on your primary work.
