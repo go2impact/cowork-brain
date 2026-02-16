@@ -1,7 +1,7 @@
 # Cowork.ai — Product Overview
 
-**Version:** 1.0  
-**Last Updated:** 2026-02-12  
+**Version:** 1.2
+**Last Updated:** 2026-02-16
 **Purpose:** What Cowork.ai is, what it does, who it's for, and where it's going. Start here if you're new.
 
 ---
@@ -30,7 +30,7 @@ The user chooses at onboarding: "Run on my machine" (free, private, uses RAM) or
 
 ### The Desktop Sidecar
 
-Cowork.ai runs as a desktop application (Electron/Tauri), not a browser tab. It presents as a sidecar panel that slides in from the right edge of the screen. Three states:
+Cowork.ai runs as an Electron desktop application, not a browser tab. It presents as a sidecar panel that slides in from the right edge of the screen. Three states:
 
 1. **Closed** — Only a small trigger in the menu bar. The worker's screen is fully theirs.
 2. **SideSheet** — A 360px panel showing installed app states, current context, and a chat trigger. Quick glance, 5 seconds.
@@ -50,11 +50,14 @@ Workers can also build custom MCP integrations for tools specific to their workf
 
 ## What Users Can Do
 
-### Chat with an AI coworker
-Talk to the local AI assistant. It knows your current context — what apps are open, what you're working on, what's in your queue. Ask it to do things, not just answer questions.
-
 ### Install and use apps
-Browse an app gallery and install MCP-connected applications: Zendesk, Gmail, Slack, Calendar, CRM, and more. Each app shows a compact state in the sidesheet (unread count, queue depth, next event) and opens to a full view for deep interaction.
+Browse the App Gallery and install MCP-connected applications: Zendesk, Gmail, Slack, Calendar, CRM, and more. Each app shows a compact state in the sidesheet (unread count, queue depth, next event) and opens to a full view for deep interaction. Power users can build custom apps via Google AI Studio.
+
+### Connect services (MCP Integrations)
+Connect your work tools — Zendesk, Gmail, Slack, and more — via MCP. Manage connections, monitor health, and configure what the AI can access. This is the foundation layer that apps and chat sit on top of.
+
+### Chat with an AI coworker
+Talk to the AI assistant. It knows your current context — what apps are open, what you're working on, what's in your queue. Ask it to do things, not just answer questions. The AI also comes to you: proactive notifications surface insights and actions when something is worth your attention.
 
 ### Watch the AI work (MCP Browser)
 When the AI executes multi-step tasks, watch every tool call in real time. See what it searched, what it found, what it drafted, what it's waiting for approval on. Full transparency — this is how we build trust.
@@ -62,8 +65,8 @@ When the AI executes multi-step tasks, watch every tool call in real time. See w
 ### Build automations
 Create rules that run without intervention: "When a high-priority ticket arrives, draft a response and notify me." "Every morning at 9am, summarize my unread messages." Automations are logged and auditable.
 
-### Build custom apps
-Power users and developers can create their own MCP server integrations, adding any data source or action to their Cowork.ai workspace.
+### Context that works for you
+The AI observes what you're working on (with your consent), remembers your preferences and past conversations, and shows your current work context at a glance via the Context Card — never a focus score or productivity metric.
 
 ---
 
@@ -138,4 +141,6 @@ For deeper context on any area, see:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2 | 2026-02-16 | Fixed desktop framework reference to Electron (see decisions/DESKTOP_FRAMEWORK_DECISION.md). |
+| 1.1 | 2026-02-16 | Updated "What Users Can Do" to reflect all 6 product features (Apps, MCP Integrations, Chat, MCP Browser, Automations, Context). |
 | 1.0 | 2026-02-12 | Initial product overview. |

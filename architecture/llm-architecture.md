@@ -1,6 +1,6 @@
 # Cowork.ai — LLM Architecture Spec
 
-**v4 — February 12, 2026**
+**v4.1 — February 16, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Build spec. v0.1 is Mac-only. Attack in whatever order makes sense.
 
@@ -381,11 +381,92 @@ Real-time spend ticker on every interaction: model used, tokens, cost, daily tot
 
 ---
 
-## Embeddings & Local RAG
+## Embeddings, Local RAG & Memory Architecture
+
+### Embedding Model & Vector Store
 
 - **Model:** Qwen3-Embedding-0.6B via Ollama (~500MB RAM, strong Tagalog+EN)
 - **Vector store:** SQLite-vec (same .db as activity store — single file, zero-ops)
 - **Fallback:** Keyword search against SQLite if embeddings can't run locally
+
+### Memory System Architecture
+
+The memory system covers everything the AI has observed — both captured activity data and conversation history. Both feed into the same pipeline.
+
+**Two data sources:**
+
+- **Activity data** — window titles, app names, browser URLs, focus sessions, keystroke/input patterns (opt-in), browser session actions, clipboard content (opt-in), screen recordings (opt-in). Stored in the activity store (SQLite).
+- **Conversation data** — user messages and AI responses, tool results and action outcomes, coaching interventions during execution. Stored in the conversation store (SQLite).
+
+Both sources flow through the same pipeline: raw data → local storage → embeddings → vector store → retrievable via RAG.
+
+**Data pipeline:**
+
+```
+Activity Data                         Conversation Data
+      │                                        │
+      ▼                                        ▼
+ ┌──────────────────────────────────────────────────┐
+ │          Local Storage (on-device SQLite)         │
+ │          Raw data persisted locally               │
+ └────────────────────┬─────────────────────────────┘
+                      │
+      ┌───────────────┼───────────────────┬────────────────────┐
+      ▼               ▼                   ▼                    ▼
+Conversation     Embedding           Observational          Working
+History          Pipeline            Memory                 Memory
+      │               │                   │                    │
+      ▼               ▼                   ▼                    ▼
+Recent N msgs    Local embedding     Background agents     Structured user
+kept in context  model generates     observe + compress    profile updated
+for short-term   vector represen-    raw history into      from conversation
+continuity       tations → stored    dense observation     + activity signals
+                 in local vector     logs. Raw data
+                 store, indexed      replaced over time;
+                 for similarity      observations persist
+                 search (RAG)        + get embedded too
+```
+
+### Four Memory Layers
+
+| Layer | What it stores | Sources | Lifespan | Retrieval |
+|-------|---------------|---------|----------|-----------|
+| **Conversation History** | Recent messages from the current chat thread | Conversations | Current session | Direct — last N messages loaded into context |
+| **Working Memory** | Structured user profile — name, preferences, goals, communication style, project context | Conversations + activity patterns | Persistent (until user edits/deletes) | Direct — always loaded into context |
+| **Semantic Recall** | Past conversations and captured activity data | Both sources | Long-term | RAG — query embedded, vector similarity search retrieves relevant past context |
+| **Observational Memory** | Dense compressed logs from raw conversation and activity history | Both sources | Long-term | Background compression; retrievable via semantic recall |
+
+How the layers work together:
+
+1. **Conversation History** gives the AI short-term continuity — what the user just said.
+2. **Working Memory** gives it persistent knowledge — who the user is, how they work.
+3. **Semantic Recall** finds relevant past conversations and activity via vector similarity search.
+4. **Observational Memory** keeps long-term memory manageable — compress, don't delete.
+
+### RAG Retrieval Flow
+
+1. Query arrives (from chat or agent context assembly).
+2. Query is embedded using Qwen3-Embedding-0.6B.
+3. Vector similarity search against SQLite-vec finds the most relevant past messages, activity data, and observations.
+4. Retrieved context is assembled with priority: current conversation history (highest) → working memory profile → semantically recalled past exchanges and activity → observational summaries (lowest).
+5. Assembled context is fed to the model alongside the query.
+6. If combined context exceeds the model's window, memory processors trim lowest-priority content. Trimmed content stays in the vector store for future retrieval.
+
+### Context Management
+
+When combined memory exceeds the model's context limit, memory processors filter, trim, and prioritize. Priority order: (1) conversation history, (2) working memory profile, (3) semantically recalled past context, (4) observational summaries. Trimmed content is not deleted — it remains in the vector store and can be retrieved by future queries.
+
+### Where Raw Data Lives
+
+All on-device:
+
+- **Raw activity data** — activity store (SQLite, same DB as embeddings).
+- **Raw conversation messages** — conversation store (SQLite).
+- **Embeddings / vector store** — SQLite-vec (same .db file). Embeddings generated by Qwen3-Embedding-0.6B, stored locally, searched locally. Nothing leaves the device.
+- **Working memory profile** — SQLite (structured data, not vectors).
+- **Observational memory logs** — SQLite (compressed summaries) + SQLite-vec (embedded for semantic search).
+
+No memory data leaves the device unless a query requires cloud inference — in which case only the assembled context for that specific query is sent transiently (zero-retention providers), not the full memory store.
 
 ---
 
@@ -527,6 +608,9 @@ Explicitly out of scope — do not build these yet:
 
 ## Changelog
 
+**v4.1 (Feb 16, 2026):**
+- Expanded "Embeddings & Local RAG" → "Embeddings, Local RAG & Memory Architecture" — added four-layer memory model, data pipeline, RAG retrieval flow, context management, and data storage details (moved from product-features.md per CEO feedback on PR #6)
+
 **v4 (Feb 12, 2026):**
 - Local LLM: single model — DeepSeek-R1-Distill-Qwen-8B via Ollama (was multiple Qwen models)
 - Added onboarding choice: "run on your machine" vs "run in the cloud"
@@ -542,6 +626,6 @@ Explicitly out of scope — do not build these yet:
 
 ---
 
-*v4 — February 12, 2026*
+*v4.1 — February 16, 2026*
 
 **See also:** [Product Overview](../product/product-overview.md) · [LLM Strategy & Economics](../strategy/llm-strategy.md) · [Design System](../design/design-system.md)
