@@ -101,7 +101,7 @@ MCP Integrations are the pipes to external services. Unlike Apps (which have the
 
 **Relationship to Apps:** Apps declare what MCP tools they need. MCP Integrations is where those connections are actually managed — think of it as the plumbing that apps and chat sit on top of.
 
-**In the SideSheet:** Accessed via settings or app management — doesn't need a dedicated card.
+**In the SideSheet:** Compact card showing connected services count, connection health (all green / X needs attention), and quick link to manage.
 **In the Detail Canvas:** Connection management interface with status, tools, and add-new flow.
 
 ---

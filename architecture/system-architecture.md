@@ -1,18 +1,17 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.4.1 — February 17, 2026**
+**v1.5 — February 17, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
-**Open items (3 questions, 2 inline):**
+**Open items (1 question, 1 inline):**
 
 | # | Question | Blocks v0.1? | What it takes to resolve |
 |---|---|---|---|
-| 1 | **Mastra in utility process** | Yes — everything depends on this | PoC spike: init Mastra + libsql in Electron utility process, run one agent call |
 | 2 | **Database schema** | Yes — can't write code without tables | Design from product-features.md: 5 capture streams, 4 memory layers, agent state |
-| 3 | **IPC contract** | Yes — can't wire processes | Full channel inventory + Zod schemas (patterns defined, channels not enumerated) |
+| 3 | **IPC contract** | **Resolved — Draft** | 34 channels, 9 namespaces, full Zod schemas. See [ipc-contract.md](./ipc-contract.md) |
 
-Inline: **Mastra external client injection** (line 434, tied to Q#1 spike) · **Observer model choice** (line 612, needs benchmarking)
+Inline: **Observer model choice** (line 612, needs benchmarking)
 
 **This doc consolidates decisions from:**
 - [DESKTOP_FRAMEWORK_DECISION.md](../decisions/DESKTOP_FRAMEWORK_DECISION.md) — why Electron, multi-process model
@@ -83,7 +82,7 @@ Five processes. Each has a single responsibility. If one crashes, the others sur
 | **Renderer** | All UI. Fully sandboxed — no Node.js access. Communicates exclusively via IPC. | Always | Can reload without affecting capture or agents. |
 | **Playwright Child** | Browser automation for MCP Browser feature. Spawns its own Chromium instances. | On demand | Kill and respawn. No impact on anything else. |
 
-> **Mastra in utility process is the target architecture, not yet proven.** Each component works individually (aime-chat proves Mastra+Electron; @electron/llm proves LLM streaming in utility processes), but no one has run the full Mastra stack in an Electron utility process. A proof-of-concept spike is required before committing. Fallback options: main process (accept crash risk) or separate server process (HTTP overhead). See [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md).
+> **Mastra in utility process is proven.** PoC spike (Feb 17, 2026) passed all 7 steps: Mastra + libsql init, `agent.generate()` via IPC, `agent.stream()` via MessagePort, crash isolation + restart, and packaged runtime with ASAR-unpacked native modules. See [phase-1b-sprint-plan.md Sprint 0](./phase-1b-sprint-plan.md#sprint-0-complete-mastra-utility-process-spike) for evidence links.
 
 **Why multi-process:** Native C++ addons can segfault. Embedding generation is CPU-heavy. Playwright can hang. None of these should freeze the UI or kill the app. Electron's built-in IPC connects all processes — no custom serialization protocol, no HTTP hop.
 
@@ -351,6 +350,7 @@ The preload script exposes `window.cowork.*` with scoped namespaces:
 | `cowork.browser` | Main → Agents & RAG → Playwright | Browser automation commands |
 | `cowork.capture` | Main → Capture | Capture status, stream toggles |
 | `cowork.context` | Main → Agents & RAG | Context Card data, activity queries |
+| `cowork.apps` | Main → Agents & RAG | App install/remove, list installed apps |
 | `cowork.system` | Main | Service health events, manual retry, app diagnostics |
 
 ---
@@ -443,7 +443,7 @@ Reused from the existing codebase — proven buffer management and event chunkin
 
 Separate indexes enable per-type queries (e.g., "find similar activity") or merged cross-type queries with different relevance weights. Same `LibSQLVector.createIndex()` API per index.
 
-**Schema migration strategy** — Additive `ALTER TABLE ADD COLUMN` with duplicate-column tolerance (try/catch, ignore "column already exists"). No version-tracked migration framework for v0.1. Per-process schema ownership: the Capture Utility process creates and migrates app tables (activities, input events, context streams); the Agents & RAG Utility process creates and migrates its own tables (embedding queue, agent operations, automations, mcp_servers, mcp_connection_state, tool_policies). Mastra manages `LibSQLStore` and `LibSQLVector` tables internally. Neither process ALTERs tables owned by the other.
+**Schema migration strategy** — Additive `ALTER TABLE ADD COLUMN` with duplicate-column tolerance (try/catch, ignore "column already exists"). No version-tracked migration framework for v0.1. Per-process schema ownership: the Capture Utility process creates and migrates app tables (activities, input events, context streams); the Agents & RAG Utility process creates and migrates its own tables (embedding queue, agent operations, automations, mcp_servers, mcp_connection_state, tool_policies, notification_log, installed_apps, app_permissions). Mastra manages `LibSQLStore` and `LibSQLVector` tables internally. Neither process ALTERs tables owned by the other.
 
 ---
 
@@ -779,7 +779,7 @@ starting ──→ running ──→ stopped (user toggled off)
 **OAuth flow:**
 - System browser opens for login (renderer can't handle OAuth popups — sandboxed)
 - PKCE flow via `OAuthClientProvider` from `@modelcontextprotocol/sdk`
-- Credentials (OAuth tokens, API keys) stored in macOS Keychain via `keytar`, keyed by `cowork-mcp-{serverUrlHash}`. Non-secret metadata (server URL, scopes, expiry timestamp) stored in `{userData}/.mcp/{serverUrlHash}.json`. Tokens never written to plaintext files.
+- Credentials (OAuth tokens, API keys) encrypted via Electron `safeStorage` API (uses macOS Keychain / Windows DPAPI under the hood), persisted to `cowork.db` keyed by `cowork-mcp-{serverUrlHash}`. Non-secret metadata (server URL, scopes, expiry timestamp) stored in `{userData}/.mcp/{serverUrlHash}.json`. Tokens never written to plaintext files. (`keytar` is deprecated and archived — `safeStorage` is Electron-native, no additional native bindings needed.)
 - Token refresh handled automatically; expiry detection triggers "reconnect" prompt in UI
 - Main process opens browser and captures OAuth callback, forwards tokens to Agents & RAG utility
 
@@ -948,9 +948,9 @@ Apps see `window.cowork.*` injected via the app's preload script. **Apps never t
 |---|---|
 | `listTools()` | Returns tools the app has permission to use (platform filters by grant) |
 | `callTool(name, args)` | Request the platform to execute an MCP tool on the app's behalf (permission-checked at preload, executed by Agents & RAG) |
-| `chat(message)` | Send a message to the platform agent — requires `permissions.agent: true` in manifest (preload-gated, same as `callTool`). Platform selects the model and manages API keys (app never sees them) |
-| `onMessage(callback)` | Subscribe to streaming agent responses |
 | `getAppConfig()` | App metadata, granted permissions, connected services |
+
+> **Deferred:** `onMessage(callback)` (platform-to-app push channel for streaming agent responses) — deferred to Phase 3. Sprint 8 SDK is request/response only. See [phase-1b-sprint-plan.md](./phase-1b-sprint-plan.md) exclusions list.
 
 The SDK does NOT expose: raw MCP protocol, OAuth tokens, API keys, agent internals, other apps' data, or Node.js/Electron APIs. Apps are pure UI — the platform owns all service connections and model access.
 
@@ -975,14 +975,14 @@ Permission grants stored in `cowork.db`. Manifest apps get their declared permis
 - Includes `cowork.manifest.json` declaring required tools/permissions
 - Has a clean React structure that esbuild bundles without issues
 
-**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. No Gemini proxy — generic exports that call Gemini directly need to be adapted to use `window.cowork.chat()` per the guidelines.
+**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. No Gemini proxy — generic exports that call Gemini directly need to be adapted to use `window.cowork.callTool('platform_chat', ...)` per the guidelines.
 
 ### Design Decisions (Resolved)
 
 | Question | Decision | Reasoning |
 |---|---|---|
 | Preprocessing pipeline | **esbuild bundle** | Fast (~10-100ms). Handles TSX/TS natively. Produces single output file that resolves all imports. Solves preprocessing + import resolution in one step. |
-| Gemini API proxy | **Not needed.** Template apps use `window.cowork.chat()` — platform handles model selection + API keys. Generic exports must adapt to use `window.cowork.chat()` per guidelines. | Eliminates an entire subsystem (protocol handler or Express proxy). Apps don't manage API keys or model selection — the platform does. |
+| Gemini API proxy | **Not needed.** Template apps use `window.cowork.callTool('platform_chat', ...)` — platform handles model selection + API keys. Generic exports must adapt to the same call pattern per guidelines. | Eliminates an entire subsystem (protocol handler or Express proxy). Apps don't manage API keys or model selection — the platform does. |
 | Import resolution | **esbuild bundles deps** — no import maps needed. esbuild resolves bare specifiers during bundling. | Falls out of the esbuild decision. No runtime import resolution, no CDN dependency, works offline. |
 | Manifest authoring | **Template includes `cowork.manifest.json`.** Manifest permissions auto-granted at install. Generic exports without manifest: user selects permissions manually. | Template apps get frictionless install. Generic exports fall back to user-selected permissions. All permissions revocable in Settings. |
 
@@ -999,7 +999,7 @@ User uploads .zip
     ↓
 4. If esbuild fails → show error + link to compatibility guidelines
     ↓
-5. Grant permissions: manifest present → auto-grant declared tools + agent access (unknown tool IDs ignored, re-evaluated when new MCP connections are added); no manifest → prompt user to select from available tools + "Allow agent chat" toggle
+5. Grant permissions: manifest present → auto-grant declared tools (unknown tool IDs ignored, re-evaluated when new MCP connections are added); no manifest → prompt user to select from available tools
     ↓
 6. Store app metadata + permissions in cowork.db (revocable in Settings)
     ↓
@@ -1013,13 +1013,12 @@ User uploads .zip
   "name": "Zendesk Dashboard",
   "description": "View and manage support tickets",
   "permissions": {
-    "tools": ["zendesk_list_tickets", "zendesk_get_ticket", "zendesk_update_ticket"],
-    "agent": true
+    "tools": ["zendesk_list_tickets", "zendesk_get_ticket", "zendesk_update_ticket", "platform_chat"]
   }
 }
 ```
 
-Used at install time (manifest apps auto-grant declared tools + agent access; no-manifest apps prompt user selection) and runtime (preload checks every `callTool()` and `chat()` against granted permissions in `cowork.db`).
+Used at install time (manifest apps auto-grant declared tools; no-manifest apps prompt user selection) and runtime (preload checks every `callTool()` against granted permissions in `cowork.db`).
 
 ---
 
@@ -1111,7 +1110,7 @@ src/
 
 ### Build Configuration
 
-**ASAR unpack** — libsql, native capture addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`), and `keytar` (Keychain credential access) must be unpacked from the ASAR archive for `dlopen()`. Native `.node` files can't be loaded from inside ASAR — they need real filesystem paths.
+**ASAR unpack** — libsql and native capture addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`) must be unpacked from the ASAR archive for `dlopen()`. Native `.node` files can't be loaded from inside ASAR — they need real filesystem paths. (Credential encryption uses Electron's built-in `safeStorage` API — no additional native bindings needed.)
 
 **Post-pack patching** — libsql native module patching at both install-time (pnpm patch) and post-pack (script after electron-builder). Belt-and-suspenders approach ensures patches survive regardless of how the build pipeline transforms `node_modules`.
 
@@ -1175,18 +1174,18 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 
 | # | Question | Impact |
 |---|---|---|
-| 1 | **Mastra in utility process** — needs proof-of-concept spike. Can `@mastra/core` + `@mastra/libsql` initialize and run agents in an Electron utility process? | Architecture of Agents & RAG process. Fallback: main process or separate server. |
 | 2 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
 | 3 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts`, `tracedInvoke` pattern for observability, `system:health` + `system:retry` channels for service health. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
 
 **Resolved:**
+- **Mastra in utility process** → GO. PoC spike (Feb 17, 2026) passed all 7 steps. `@mastra/core` + `@mastra/libsql` initialize and run agents in Electron utility process. Streaming via MessagePort with ACK gate pattern. Crash isolation works (exit → restart → resumed). Packaged runtime resolves native modules from `app.asar.unpacked`. See [phase-1b-sprint-plan.md Sprint 0](./phase-1b-sprint-plan.md#sprint-0-complete-mastra-utility-process-spike).
 - **MCP server packaging** → Bundled. Developers ship each integration with the app. Users connect, not install.
 - **App Gallery hosting** → No hosted gallery for v0.1. Users upload zip files, Cowork renders locally.
 - **Bundle ID rename** → No rename. Keep existing coworkai bundle ID.
 - **MCP install registry** → N/A. MCP servers are bundled, not user-installed. No registry needed.
 - **App-to-platform MCP transport** → Preload IPC relay. Apps call `window.cowork.*` → preload → `ipcRenderer.invoke()` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. No network exposure, no port, no auth tokens. MCP tool calls are infrequent (~seconds between calls) so the extra main-process relay hop (~1ms) is irrelevant.
 - **Refusal message exclusion** → Custom Mastra `MemoryProcessor`. A `RefusalFilter` processor strips refusal messages from the context window before sending to the LLM, while leaving them in storage for UI display. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface (same pattern as the built-in `ToolCallFilter`) runs after fetch and before LLM — exactly the right hook.
-- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). No Gemini proxy — apps use `window.cowork.chat()`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions at install time.
+- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). No Gemini proxy — apps use `window.cowork.callTool('platform_chat', ...)`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions at install time.
 
 ---
 
@@ -1206,6 +1205,8 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 
 ## Changelog
 
+**v1.5.3 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `chat(message)` method to match product rule "Apps get tools, not agents." Apps now reach platform reasoning through `callTool('platform_chat', ...)` (agent-as-tool), with normal tool permission checks. Updated Platform SDK table, two-track generic-export guidance, Gemini proxy decision row, installation flow permission step, and the resolved decisions summary.
+
 **v1 (Feb 16, 2026):** Initial draft. Consolidates process model, data flow, IPC contract, capture layer, database layer, LLM stack, memory system, agent orchestration, feature-to-infrastructure mapping, thermal management, and directory structure from six existing decision/architecture docs into a single reference.
 **v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.
 **v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
@@ -1215,4 +1216,9 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 **v1.3.3 (Feb 17, 2026):** Resolved App-to-platform MCP transport question. Decision: preload IPC relay — apps use `window.cowork.*` → preload → main → Agents & RAG utility, same pattern as the main renderer. Local HTTP server ruled out (unnecessary attack surface; CVE-2025-49596 demonstrated the DNS rebinding risk class). MessagePort direct channel deferred — adds setup complexity for ~1ms savings on infrequent calls. Open questions reduced from 5 to 4. Fixed stale `#9` cross-reference to refusal message exclusion (now `#4`).
 **v1.3.4 (Feb 17, 2026):** Resolved refusal message exclusion question. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface solves it: a custom `RefusalFilter` processor strips refusal messages from context before sending to the LLM while leaving them in storage for UI display. Same pattern as Mastra's built-in `ToolCallFilter`. Updated Query Refusal section with resolved mechanism. Open questions reduced from 4 to 3.
 **v1.4 (Feb 17, 2026):** Added Apps Runtime section — was missing from the doc despite Apps being in v0.1 scope. Covers: WebContentsView rendering (sandboxed, partition-isolated, custom `cowork-app://` protocol), platform communication (preload IPC relay, decided), platform SDK API surface, per-app permission model. Added Q#4 (Apps runtime design) to open items — remaining decisions: preprocessing pipeline, Gemini API proxy, import resolution, manifest authoring. Updated Feature → Infrastructure Map with Apps Runtime cross-reference.
+**v1.5.2 (Feb 17, 2026):** Replaced `keytar` with Electron `safeStorage` API for MCP credential storage — `keytar` is deprecated and archived since 2022. `safeStorage` is built-in (Electron 15+), no additional native bindings. Updated OAuth flow section, ASAR unpack list, and added `cowork.apps` namespace to preload table. Decision log entry updated.
+
+**v1.5.1 (Feb 17, 2026):** Deferred `onMessage(callback)` from Platform SDK table — push channel moves to Phase 3. Sprint 8 / Phase 1B SDK is request/response only (`listTools`, `callTool`, `chat`, `getAppConfig`). Added cross-reference to phase-1b-sprint-plan.md exclusions list.
+
+**v1.5 (Feb 17, 2026):** Resolved Q#1 (Mastra in utility process) — marked as GO after PoC spike passed all 7 steps (Feb 17). Moved from open items to resolved list. Updated process model blockquote from "not yet proven" to "proven." Open questions reduced from 3 to 2.
 **v1.4.1 (Feb 17, 2026):** Resolved all 4 Apps runtime design questions. Two-track strategy: template apps (Cowork.ai-published Google AI Studio template, guaranteed compatible) + generic AI Studio exports (best-effort esbuild bundling). esbuild handles preprocessing + import resolution in one step. No Gemini proxy — apps use `window.cowork.chat()`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions. Added installation flow (7 steps from zip upload to sidesheet). Removed Q#4 from open items. Open questions reduced from 4 to 3.

@@ -382,23 +382,24 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
-## 2026-02-17 — MCP credentials: Keychain-backed storage (replaces plaintext)
+## 2026-02-17 — MCP credentials: Electron safeStorage (replaces plaintext) — updated from keytar
 
-**Changed:** OAuth tokens and API keys for MCP server connections stored in macOS Keychain via `keytar` instead of plaintext JSON files on disk.
+**Changed:** OAuth tokens and API keys for MCP server connections encrypted via Electron `safeStorage` API instead of plaintext JSON files on disk. Originally specified `keytar` — reversed to `safeStorage`.
 
-**From → To:** `{userData}/.mcp/{serverUrlHash}_tokens.json` (plaintext, readable by any process with file access) → macOS Keychain entries keyed by `cowork-mcp-{serverUrlHash}` (encrypted at rest, OS-managed access control). Non-secret metadata (server URL, scopes, expiry) remains in JSON file.
+**From → To:** `{userData}/.mcp/{serverUrlHash}_tokens.json` (plaintext) → encrypted via `safeStorage` API, persisted to `cowork.db` keyed by `cowork-mcp-{serverUrlHash}` (OS-backed encryption at rest). Non-secret metadata (server URL, scopes, expiry) remains in JSON file.
 
 **Why:**
-1. OAuth tokens for Zendesk, Gmail, Slack are high-value credentials. Plaintext files on disk are accessible to any app with read permissions — malware, other Electron apps, or even a `cat` command.
-2. macOS Keychain is the platform standard. Users expect desktop apps to use it. Safari, 1Password, Slack desktop all store credentials in Keychain.
-3. `keytar` is a proven N-API module that wraps Keychain on macOS (and Credential Vault on Windows for future cross-platform). Used by VS Code, GitHub Desktop, and Atom.
-4. The existing `OAuthClientProvider` from `@modelcontextprotocol/sdk` can be wrapped to read/write Keychain instead of files — the interface stays the same.
+1. OAuth tokens for Zendesk, Gmail, Slack are high-value credentials. Plaintext files on disk are accessible to any app with read permissions.
+2. `keytar` is deprecated and archived (since Dec 2022). No longer maintained. VS Code already migrated off it.
+3. Electron `safeStorage` API has been available since Electron 15 (Sep 2021). We're on Electron 37.1.0 — 22 major versions of stability. Uses macOS Keychain / Windows DPAPI under the hood.
+4. Zero additional native dependencies — `safeStorage` is built into Electron. Removes one ASAR unpack entry and one native rebuild from `forge.config.ts`.
+5. The `OAuthClientProvider` from `@modelcontextprotocol/sdk` can be wrapped to use `safeStorage.encryptString()` / `safeStorage.decryptString()` — the interface stays the same.
 
-**Cost impact:** Adds `keytar` as a native dependency (one more ASAR unpack entry). No runtime cost difference.
+**Cost impact:** Net negative — removes `keytar` native dependency, simplifies build pipeline.
 
 **Alternatives considered:**
-- Encrypted file with app-generated key: Key must be stored somewhere — ends up in Keychain anyway, adding a layer of indirection for no benefit. Rejected.
-- electron safeStorage API: Encrypts with OS key but still writes to disk. Less standard than Keychain entries and harder to inspect/debug. Rejected — Keychain is the canonical macOS pattern.
+- `keytar`: Original choice. Deprecated, archived, unmaintained since 2022. Would add unnecessary native binding. Reversed.
+- Encrypted file with app-generated key: Key must be stored somewhere — ends up using OS encryption anyway, adding a layer of indirection for no benefit. Rejected.
 
 **Approved by:** Rustan
 
@@ -420,5 +421,27 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **Alternatives considered:**
 - Keep screen recording in v0.1 as opt-in: rejected — expands surface area and privacy review burden in the first ship.
 - Remove screen recording entirely from roadmap: rejected — coached visible automation still benefits from optional screen context in later versions.
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Apps permission boundary: tools-only (agent access via `platform_chat` tool)
+
+**Changed:** Removed direct app-level agent permission (`chat` / `permissions.agent`) from the active schema and architecture contract. Apps now access agent reasoning only through a platform-provided MCP tool (`platform_chat`) using the same `callTool()` path as other tools.
+
+**From → To:** Mixed model (`callTool(...)` + direct app SDK `chat(...)` with special agent permission) → Tools-only model (`callTool(...)` for all app actions, including agent-as-tool via `platform_chat`).
+
+**Why:**
+1. Product contract is explicit: "Apps get tools, not agents." The direct `chat(...)` path created a policy contradiction between product and architecture docs.
+2. One permission path is easier to reason about and audit. Tool grants stay in one table (`app_permissions`) and one evaluator (preload tool permission check), reducing edge-case drift.
+3. Safety and cost controls remain centralized. The platform still chooses model/routing/budget when `platform_chat` executes, but apps never receive direct agent surface area.
+4. The tools-only contract simplifies installer UX (no extra "agent chat" toggle) and keeps SDK semantics consistent for template and generic app exports.
+
+**Cost impact:** Neutral to slightly positive. No new infrastructure; removes special-case permission logic and associated QA paths.
+
+**Alternatives considered:**
+- Keep direct `chat(...)` and reinterpret it as "not really agent access": rejected — wording still conflicts with product contract and duplicates permission pathways.
+- Remove agent-style access for apps entirely: rejected — apps still need platform reasoning in some flows; agent-as-tool preserves capability without expanding surface area.
 
 **Approved by:** Rustan
