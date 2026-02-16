@@ -1,27 +1,47 @@
-# Cowork.ai — Code Repos
+# Cowork.ai — Repo Inventory
 
-All application code lives in separate repos. This file links to them with context on what each one does.
-
----
-
-## Active Repos
-
-| Repo | Description | Primary Owner | Status |
-|------|-------------|---------------|--------|
-| `go2/cowork-desktop` | Electron desktop app (see [decisions/DESKTOP_FRAMEWORK_DECISION.md](decisions/DESKTOP_FRAMEWORK_DECISION.md)) | Rustan | Active |
-| *TBD* | *Cowork.ai web app / dashboard* | — | Planned |
-| *TBD* | *Backend API / billing / credits* | — | Planned |
-
-> Update this table as repos are created. Each code repo should link back here in its own README for architecture/strategy context.
+All application code lives in separate repos. This file is the single source of truth for what exists, what each repo does, and its disposition in the Sidecar transition.
 
 ---
 
-## Repo Naming Convention
+## Repos
 
-All Cowork repos live under the `go2` GitHub org. Suggested naming:
+| Repo | GitHub | Description | Disposition |
+|------|--------|-------------|-------------|
+| coworkai-desktop | [go2impact/coworkai-desktop](https://github.com/go2impact/coworkai-desktop) | Electron app (Electron 37.1.0, React 19, Forge packaging) | **Gut in place** — keep shell, remove tracker logic |
+| coworkai-activity-capture | [go2impact/coworkai-activity-capture](https://github.com/go2impact/coworkai-activity-capture) | Native C++ addon — active window/URL detection | **Keep as-is** |
+| coworkai-keystroke-capture | [go2impact/coworkai-keystroke-capture](https://github.com/go2impact/coworkai-keystroke-capture) | Native C++ addon — keystroke/mouse input capture | **Keep as-is** |
+| coworkai-agent | [go2impact/coworkai-agent](https://github.com/go2impact/coworkai-agent) | Capture orchestration, agent configs, sync logic | **Reference only** — lift patterns, then archive |
+| cowork-brain | [go2impact/cowork-brain](https://github.com/go2impact/cowork-brain) | Architecture, decisions, strategy, design | **Active** — the decision layer |
 
-- `cowork-brain` — This repo (decisions, strategy, architecture)
-- `cowork-desktop` — Desktop application
-- `cowork-api` — Backend services
-- `cowork-web` — Web dashboard / admin
-- `cowork-docs` — User-facing documentation (if separate from product)
+## Dependency Graph
+
+```
+coworkai-desktop
+├── @engineering-go2/coworkai-activity-capture  (native addon)
+├── @engineering-go2/coworkai-keystroke-capture  (native addon)
+└── @engineering-go2/coworkai-agent             (being replaced by Mastra.ai)
+```
+
+## Build Status
+
+Last verified: 2026-02-17
+
+| Repo | npm install | Build | Notes |
+|------|------------|-------|-------|
+| coworkai-activity-capture | PASS | PASS | macOS arm64, Node 22.16.0 |
+| coworkai-keystroke-capture | PASS | PASS | macOS arm64, Node 22.16.0 |
+| coworkai-desktop | FAIL | — | Blocked: expired nut-tree token, missing coworkai-video-capture package |
+| coworkai-agent | — | — | Reference only, not maintained |
+
+## Key Decisions
+
+- **Desktop framework:** Electron (Swift and Tauri evaluated and rejected) — see [DESKTOP_FRAMEWORK_DECISION.md](decisions/DESKTOP_FRAMEWORK_DECISION.md)
+- **Salvage plan:** What gets kept vs. gutted — see [DESKTOP_SALVAGE_PLAN.md](decisions/DESKTOP_SALVAGE_PLAN.md)
+- **Target architecture:** [system-architecture.md](architecture/system-architecture.md)
+
+## Documentation Status
+
+All 3 maintained repos now have:
+- `CLAUDE.md` — AI assistant context (what it is, disposition, build, key files)
+- `README.md` — Human-readable orientation with Sidecar context
