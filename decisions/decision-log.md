@@ -335,3 +335,25 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **What was removed:** "What Does NOT Live Here" section (defensive, unnecessary — The One Rule already covers scope).
 
 **Approved by:** Scott
+
+---
+
+## 2026-02-16 — AI SDK version: v6 (not v5)
+
+**Changed:** Decided to start on Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) instead of matching the AIME Chat reference app's v5 (`ai` ^5.0.93).
+
+**From → To:** Open question (v5 for reference compatibility vs v6 for current) → AI SDK v6.
+
+**Why:**
+1. Mastra 1.0+ supports both v5 and v6 natively. `@mastra/core` v1.4.0 bundles both `@ai-sdk/provider-v5` and `@ai-sdk/provider-v6` via npm aliasing. There is no Mastra constraint blocking v6.
+2. The breaking changes are mechanical renames (`CoreMessage` → `ModelMessage`, `textEmbeddingModel()` → `embeddingModel()`, `@ai-sdk/react` v2 → v3, tool helper name swaps) with an automated codemod (`npx @ai-sdk/codemod v6`). They are not architectural.
+3. The patterns we're copying from AIME Chat — custom `ChatTransport<UIMessage>`, Zod-validated chunk protocol, `useChat()` hook, `tool()` + Zod schemas — are stable across both versions. Same architecture, different type names.
+4. Mastra hides the AI SDK version on the backend (agent orchestration, tools, embeddings all go through Mastra APIs), but `@ai-sdk/react` is a direct frontend dependency — our `IpcChatTransport` implements AI SDK's interface directly, not through Mastra. Starting on v6 avoids an eventual migration of this frontend layer.
+5. v6 shipped Dec 22, 2025 and is at 6.0.86 (stable). Starting on v5 means adopting a one-major-version-behind dependency from day one.
+
+**Cost impact:** None. Both versions are open source. Avoids future migration cost.
+
+**Alternatives considered:**
+- Start on v5 to copy AIME Chat code verbatim: We're adapting patterns, not copying files. The renames are trivial. Rejected — starting behind guarantees a migration later.
+
+**Approved by:** Rustan

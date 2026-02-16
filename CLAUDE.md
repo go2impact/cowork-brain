@@ -41,6 +41,7 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 ## Key Technical Context
 
 - **Database:** libsql for everything — capture data + Mastra agent memory + vector search in one `.db` file (see decisions/DATABASE_STACK_RESEARCH.md)
+- **AI SDK:** Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) — interface contract between agents and providers, and between main process and React frontend
 - **Agent orchestration:** Mastra.ai via `@mastra/libsql`, runs in Electron utility process
 - **Electron version:** 37.1.0 (Node 22.16.0) — existing codebase baseline
 - **Local brain:** DeepSeek-R1-Distill-Qwen-8B (4-bit, Ollama) — handles ~70% of daily work, free
