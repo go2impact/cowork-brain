@@ -8,7 +8,7 @@ All application code lives in separate repos. This file links to them with conte
 
 | Repo | Description | Primary Owner | Status |
 |------|-------------|---------------|--------|
-| `go2/cowork-desktop` | Native Swift/AppKit desktop app (v1 native client) | Rustan | Active |
+| `go2/cowork-desktop` | Electron desktop app (see [decisions/DESKTOP_FRAMEWORK_DECISION.md](decisions/DESKTOP_FRAMEWORK_DECISION.md)) | Rustan | Active |
 | *TBD* | *Cowork.ai web app / dashboard* | — | Planned |
 | *TBD* | *Backend API / billing / credits* | — | Planned |
 

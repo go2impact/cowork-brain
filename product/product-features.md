@@ -29,7 +29,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 **Works inside your tools, not instead of them.** You still use Zendesk, Gmail, Slack. The sidecar sits on top of them (via API) and operates inside them (via browser). Apps built in Google AI Studio are uploaded to the desktop app and given access to your work context through platform-provided MCPs.
 
-**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it — without sending your data off-device.
+**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it — local-first, with cloud inference only when needed (zero-retention providers).
 
 **Pushes and pulls.** The platform comes to you when something is worth your attention (Chat — proactive notifications). You come to it when you have a question (Chat — on-demand conversation). Both paths lead to action.
 
@@ -277,13 +277,13 @@ Six input streams provide the AI with work context:
 | **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
 | **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
 
-**Data flow:** Raw capture → local SQLite (GRDB, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
+**Data flow:** Raw capture → local SQLite (better-sqlite3, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
 
 **Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
 
 #### What the AI remembers
 
-The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — all on-device, never sent to a server. Past conversations, working preferences, communication patterns, and activity history are embedded and indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
+The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — stored on-device, with cloud inference using zero-retention providers when the local brain can't handle a task. Past conversations, working preferences, communication patterns, and activity history are embedded and indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
 
 For the full technical architecture (four-layer memory model, data pipeline, RAG retrieval flow), see [Memory Architecture](../architecture/llm-architecture.md#embeddings-local-rag--memory-architecture).
 
@@ -333,7 +333,7 @@ Cowork.ai observes your work context to be useful. That observation has to be cl
 
 - **Continuous screen recording** — screen capture is opt-in, agent-session-only, not ambient surveillance.
 - **Keystroke data for employer reporting** — keystroke capture trains your AI, never reported to anyone else. Never leaves device.
-- **Browsing history outside agent sessions** — activity context reads window titles and URLs for context, not full app content.
+- **Full page content outside agent sessions** — activity context captures window titles and URLs for work context, not page content or DOM data. General browsing is not indexed.
 - **Idle/active time** — no attendance monitoring. Activity context is for flow-state detection only.
 - **Audio when not activated** — wake word detection is ephemeral on-device processing. Audio never leaves the device.
 

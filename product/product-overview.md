@@ -1,6 +1,6 @@
 # Cowork.ai — Product Overview
 
-**Version:** 1.1
+**Version:** 1.2
 **Last Updated:** 2026-02-16
 **Purpose:** What Cowork.ai is, what it does, who it's for, and where it's going. Start here if you're new.
 
@@ -30,7 +30,7 @@ The user chooses at onboarding: "Run on my machine" (free, private, uses RAM) or
 
 ### The Desktop Sidecar
 
-Cowork.ai runs as a native Swift/AppKit desktop application, not a browser tab. It presents as a sidecar panel that slides in from the right edge of the screen. Three states:
+Cowork.ai runs as an Electron desktop application, not a browser tab. It presents as a sidecar panel that slides in from the right edge of the screen. Three states:
 
 1. **Closed** — Only a small trigger in the menu bar. The worker's screen is fully theirs.
 2. **SideSheet** — A 360px panel showing installed app states, current context, and a chat trigger. Quick glance, 5 seconds.
@@ -141,5 +141,6 @@ For deeper context on any area, see:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.1 | 2026-02-16 | Fixed "Electron/Tauri" → "native Swift/AppKit". Updated "What Users Can Do" to reflect all 6 product features (Apps, MCP Integrations, Chat, MCP Browser, Automations, Context). |
+| 1.2 | 2026-02-16 | Fixed desktop framework reference to Electron (see decisions/DESKTOP_FRAMEWORK_DECISION.md). |
+| 1.1 | 2026-02-16 | Updated "What Users Can Do" to reflect all 6 product features (Apps, MCP Integrations, Chat, MCP Browser, Automations, Context). |
 | 1.0 | 2026-02-12 | Initial product overview. |

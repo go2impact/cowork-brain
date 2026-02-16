@@ -191,13 +191,26 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
-## 2026-02-13 — Tauri rewrite evaluated and rejected
+## 2026-02-13 — Desktop framework: Electron (Swift and Tauri rejected)
 
-**Changed:** Evaluated starting fresh with Tauri + Mastra instead of continuing native Swift/AppKit desktop app. Decision: stay with native Swift.
+**Changed:** Evaluated native Swift (AppKit/SwiftUI), Tauri 2.0, and Electron for the desktop shell. Decision: **Electron**.
 
-**Why rejected:** The native app already has working activity capture (NSWorkspace), keystroke capture (CGEventTap), Mastra sidecar management, notifications, Sparkle auto-updates, and a WKWebView bridge. Tauri would require rebuilding all of this with shakier dependencies — keystroke capture depends on a fork of `rdev` because vanilla crashes in Tauri, window tracking uses less battle-tested crates, and every macOS system API goes through Rust FFI instead of direct Swift. The only Tauri advantages (React UI speed, cross-platform) don't justify rebuilding working native plumbing.
+**From → To:** Native Swift/AppKit prototype → Electron with multi-process architecture (utility processes for capture and agents, sandboxed renderer).
 
-**Decision:** Continue with Swift/AppKit native app. Build product features (Approval Queue, Clone Mode, Execution Viewer) in SwiftUI.
+**Why:**
+1. Every major dependency (Playwright, Mastra.ai, RAG pipeline, uiohook-napi, active-win) is a Node.js library. Both Swift and Tauri would require running 100% of business logic in a Node.js sidecar — the native layer would only manage windows and system tray.
+2. Swift has no ecosystem for agent orchestration, browser automation, or RAG. Choosing Swift means rebuilding infrastructure that already exists in TypeScript.
+3. Global input capture (CGEvent taps) requires the same Accessibility permission regardless of runtime. No native advantage.
+4. The UI (dashboards, data tables, config panels, activity timelines) is exactly where web technologies excel. Even a Swift app would embed WKWebView for these, creating two rendering paradigms.
+5. Electron gives one runtime, one language, one debugger, built-in IPC, and crash-isolated utility processes — no custom bridge needed.
+
+**Alternatives considered:**
+- Native Swift: Two runtimes (Swift + embedded Node.js), hand-rolled bridge, no tooling support for the bridge, slow builds, thin AI/automation ecosystem. Rejected.
+- Tauri 2.0: Two runtimes (Rust + Node sidecar), sidecar lifecycle management is real engineering cost for zero user-facing value, cross-process debugging. Binary size and memory advantages are negligible given Playwright browser binaries (~200+ MB) and workload memory. Rejected.
+
+**Risk mitigation:** All business logic lives in `core/` with zero Electron imports. Electron-specific wiring is isolated in `electron/`. If migration is ever needed, business logic lifts out cleanly.
+
+**Full writeup:** [`decisions/DESKTOP_FRAMEWORK_DECISION.md`](DESKTOP_FRAMEWORK_DECISION.md)
 
 **Approved by:** Rustan
 
