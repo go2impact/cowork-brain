@@ -44,7 +44,7 @@ Operation:
     messages: conversation history
     toolManifestMap: available tool definitions
     userInterventionConfig: approval settings
-    status: 'idle' | 'running' | 'waiting_for_human' | 'done' | 'error'
+    status: 'idle' | 'running' | 'waiting_for_human' | 'interrupted' | 'done' | 'error'
     stepCount: number of execution steps completed
     cost: accumulated token cost
     usage: accumulated token usage
@@ -62,6 +62,8 @@ Operation:
 | TRPC endpoint triggers steps | IPC message triggers steps in Agents Utility |
 | Queue service schedules next step | Event loop in Agents Utility schedules next step |
 | `operationId` links to session/topic | `operationId` links to conversation/agent |
+
+**Important:** LobeChat stores operation state in-memory (via `AgentStateManager`) or Redis — NOT in Postgres/Neon. Their database (Postgres) stores messages and conversations, but the runtime state for active operations lives in memory or Redis. This means operations do not survive server restarts in LobeChat's architecture.
 
 #### Instruction executor pattern
 
@@ -88,11 +90,11 @@ Agent step:
 | `call_tool` | Execute single MCP tool | Mastra tool execution |
 | `call_tools_batch` | Execute multiple tools in parallel | Mastra parallel tool calls |
 | `request_human_approve` | Pause for user approval of tool call | Approval notification via IPC |
-| `finish` | End execution | Agent done |
+| `finish` | End execution normally | Agent done |
 | `compress_context` | Compress message history when too long | Vercel AI SDK token management |
 
 **Skipped instructions (not needed for v0.1):**
-- `exec_async_task` / `exec_client_task` — server-side async tasks (we don't have a server)
+- `exec_task` / `exec_tasks` / `exec_client_task(s)` — server/client-side task execution
 - `request_human_prompt` / `request_human_select` — complex human-in-loop UX beyond approval
 
 **Why copy the separation:** The agent's `runner()` function is pure decision logic — given this state, what should I do next? The executors handle side effects (LLM calls, tool calls, state persistence). This makes testing easy: mock the executors, verify the decisions.
@@ -103,7 +105,7 @@ Agent step:
 On each step:
   state.stepCount += 1
   if (stepCount > maxSteps):
-    → return finish instruction with reason 'max_steps_exceeded'
+    → directly return a 'done' event/result (not a finish instruction)
 ```
 
 **Why copy:** Without a step limit, a misbehaving agent loops forever (LLM calls tool → tool output triggers another tool → infinite loop). LobeChat defaults to a reasonable max. Our complexity router already has token budgets; the step limit adds a second safety net.
@@ -112,11 +114,11 @@ On each step:
 
 #### Operation persistence location
 
-LobeChat persists operations via a "coordinator" that writes to their server database. In Cowork.ai:
+LobeChat stores operation state via `AgentStateManager` in-memory or Redis — NOT in their server database. This means active operations don't survive server restarts in LobeChat. In Cowork.ai, we improve on this by persisting to libsql:
 
 ```
-LobeChat:  AgentRuntimeService → coordinator → server DB (Postgres/Neon)
-Cowork.ai: Agents Utility Process → libsql → agent_operations table
+LobeChat:  AgentRuntimeService → AgentStateManager → InMemory / Redis
+Cowork.ai: Agents Utility Process → libsql → agent_operations table (survives crashes)
 ```
 
 The schema adapts to our single-DB story:
@@ -162,7 +164,7 @@ For operations paused by `waiting_for_human`, the renderer sends an IPC message 
 
 #### Supervisor group orchestration
 
-LobeChat has a sophisticated multi-agent system with a supervisor state machine that can `call_agent`, `parallel_call_agents`, `delegate`, `vote`, and `broadcast` across agent groups.
+LobeChat has a sophisticated multi-agent system with a supervisor state machine that can `speak`, `broadcast`, `delegate`, `execute_task`, `execute_tasks`, and `finish` across agent groups.
 
 **Why skip:** Cowork.ai v0.1 has single-agent interactions. The complexity router picks the right model, not the right agent. Multi-agent orchestration is a v0.3+ feature. Study the pattern (it's well-designed), but don't build it yet.
 
@@ -182,13 +184,14 @@ Cowork.ai's MCP tools execute real actions — sending emails, updating tickets,
 
 ### Copy
 
-#### 6-phase policy hierarchy
+#### Multi-phase policy hierarchy
 
-When the LLM requests a tool call, LobeChat evaluates it through six phases in order:
+When the LLM requests a tool call, LobeChat evaluates it through a multi-phase hierarchy (effectively 7 decision phases, with a separate manual phase after allow-list):
 
 ```
 Phase 1: Global security resolvers (hardcoded blacklist)
-  → If tool matches security blacklist → BLOCK (cannot be bypassed)
+  → If tool matches security blacklist → route to intervention (in non-headless)
+  → In headless mode with 'always' policy → skip execution entirely
 
 Phase 2: Headless mode check
   → If running in async/background mode → auto-execute (unless Phase 1 blocked)
@@ -210,7 +213,9 @@ Phase 6: User 'allow-list' or 'manual' mode
   → manual: use tool's own config (default: BLOCK)
 ```
 
-**Why copy this hierarchy:** It separates security (phases 1, 3.5, 4) from user preference (phases 5, 6) from automation context (phase 2). Security phases cannot be bypassed by user settings. User preferences only apply to tools that aren't security-critical.
+**Why copy this hierarchy:** It separates security (phases 1, 3.5, 4) from user preference (phases 5, 6) from automation context (phase 2). Security phases route to intervention regardless of user settings. User preferences only apply to tools that aren't security-critical.
+
+**Caveat:** LobeChat's server-side intervention handlers (`AgentRuntimeService`) are currently TODO stubs — the approve/reject flow is fully implemented on the client store side but not wired through the server runtime service yet. This means the pattern is well-designed but not fully production-tested on the server path.
 
 **Our mapping:**
 
@@ -361,6 +366,8 @@ ERROR state:
   → Allow retry
 ```
 
+**Note:** HTTP and cloud connection types skip the dependency check phases (steps 2-3) and jump directly to configuration/manifest steps. The cloud path also builds the tool manifest from marketplace data instead of starting the server locally.
+
 **Why copy:** Without this state machine, MCP installation is a black box — the user clicks "Install" and either it works or it doesn't, with no way to fix intermediate problems. The pause/resume pattern for dependencies and config is critical: the user needs to leave the app, install Node.js, come back, and continue where they left off.
 
 **Our mapping:**
@@ -384,10 +391,8 @@ For each dependency:
   1. Run checkCommand (e.g., "node --version")
   2. Parse version from stdout (handle v prefix, multi-format)
   3. Compare against requiredVersion (supports >=, >, <=, <, =)
-  4. If missing: return platform-specific install instructions
-     macOS: "brew install node"
-     Linux: "apt-get install nodejs"
-     Windows: "winget install OpenJS.NodeJS"
+  4. If missing: return platform-specific install instructions from manifest
+     (manifest provides installInstructions per platform, not hardcoded)
 ```
 
 **Package-level checks:**
@@ -471,13 +476,21 @@ Cowork.ai's chat UI needs to handle streaming responses from both local (Ollama/
 LobeChat defines internal event types that all providers normalize to:
 
 ```
-Protocol events:
+Core protocol events:
   text          — generated text chunk
   reasoning     — thinking/reasoning content (for o1-style models)
   tool_calls    — tool call request from model
   usage         — token usage report
   grounding     — search grounding citations
   error         — stream error
+
+Additional events (not exhaustive):
+  base64_image  — inline image data
+  content_part  — structured content parts
+  reasoning_part / reasoning_signature — reasoning metadata
+  stop          — stream termination signal
+  speed         — generation speed metrics
+  data          — generic data payload
 ```
 
 Each provider's stream handler transforms native chunks into these events, then `createSSEProtocolTransformer` converts them to SSE format for the client.
@@ -522,10 +535,10 @@ LobeChat's `createRouterRuntime` supports multi-channel failover — if one prov
 
 | Pattern | Source | Cowork.ai target | Rationale |
 |---|---|---|---|
-| Operation as persistent execution unit | `runtime.ts`, `AgentRuntimeService.ts` | libsql `agent_operations` table | Resumable agent execution that survives crashes |
+| Operation as execution unit (in-memory/Redis in LobeChat) | `runtime.ts`, `AgentRuntimeService.ts` | libsql `agent_operations` table (we persist, unlike LobeChat) | Resumable agent execution that survives crashes |
 | Instruction executor pattern | `runtime.ts:26-49` | Agents Utility — agent loop | Clean separation of decisions from side effects |
 | Max-step safety limit | `runtime.ts:84-105` | Agent config | Prevents infinite tool-call loops |
-| 6-phase intervention policy hierarchy | `GeneralChatAgent.ts:52-245` | Agents Utility — policy engine | Security phases can't be bypassed by user preferences |
+| Multi-phase intervention policy hierarchy | `GeneralChatAgent.ts:52-245` | Agents Utility — policy engine | Security phases route to intervention regardless of user preferences |
 | Mixed execution (safe first, approval second) | `GeneralChatAgent.ts:386-432` | Agents Utility — tool dispatch | Agent stays responsive while user reviews dangerous tools |
 | Approval state + resumption flow | `runtime.ts:566-588` | IPC-based approval dialog | User approves → operation resumes exactly where it paused |
 | 7-step MCP install state machine | `mcpStore/action.ts:196-705` | Main process — MCP installer | Guided install with dependency and config gates |
@@ -539,7 +552,7 @@ LobeChat's `createRouterRuntime` supports multi-channel failover — if one prov
 |---|---|---|
 | Unified stream protocol normalization | One internal format for all providers | Vercel AI SDK covers most of this; extend for custom events |
 | DB-backed provider auth resolution | Credentials in DB not env vars | Store in libsql with safeStorage encryption |
-| Supervisor group orchestration state machine | Multi-agent coordination patterns | v0.3+ feature; study the `call_agent`/`parallel_call_agents` instructions |
+| Supervisor group orchestration state machine | Multi-agent coordination patterns | v0.3+ feature; study the `speak`/`broadcast`/`delegate`/`execute_task` decisions |
 | Deferred orchestration callbacks (`registerAfterCompletion`) | Avoid race conditions in multi-agent flows | Needed when we build Automations |
 | Connection-type routing (cloud/http/stdio) | Single tool invocation API across connection types | Already doing this (see Cherry Studio guide §1) |
 | Custom `app://` protocol static serving | Production asset serving with range request support | Good pattern for our Electron production build |
@@ -552,9 +565,17 @@ LobeChat's `createRouterRuntime` supports multi-channel failover — if one prov
 | Router fallback runtime (multi-channel failover) | Complexity router handles model selection |
 | Cloud MCP marketplace connection type | Desktop-only, no cloud marketplace |
 | Install telemetry reporting | No marketplace infrastructure |
-| Full group orchestration surface (vote/broadcast/delegate) | v0.1 is single-agent |
+| Full group orchestration surface (speak/broadcast/delegate/execute_task) | v0.1 is single-agent |
 | Dynamic JavaScript resolver functions for approval | Static policies + user modes cover 95% of cases |
 | Headless auto-approval mode | Needed for Automations (v0.2+) |
 | Next.js-specific patterns (TRPC, API routes, SSR) | We use Electron IPC, not HTTP |
 | Drizzle ORM patterns | We use libsql directly |
 | PGlite/Neon driver switching | Single DB engine (libsql) |
+
+---
+
+## Changelog
+
+**v1 (Feb 17, 2026):** Initial draft. All 4 sections complete.
+
+**v1.1 (Feb 17, 2026):** Fact-check corrections: operations stored in-memory/Redis not Postgres (we persist to libsql as an improvement), AgentState includes `interrupted` status, max-step returns `done` event not `finish` instruction, server intervention handlers are TODO stubs (client-side is implemented), HTTP/cloud install paths skip dependency checks, stream protocol has many more event types, install instructions come from manifest not hardcoded, supervisor decisions are speak/broadcast/delegate/execute_task(s)/finish.

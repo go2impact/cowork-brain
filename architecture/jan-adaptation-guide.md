@@ -62,6 +62,8 @@ On completion:
 
 **Why copy:** Without resume, a user downloading a 4GB model on flaky WiFi loses all progress on disconnect. The `.url` sidecar is clever — it prevents resuming a stale partial from a different mirror URL, which would produce a corrupt file.
 
+**Caveat:** Jan's main `download_files` command currently calls the internal download with `resume=false`, meaning the resume infrastructure exists but isn't active in the normal command path. The pattern itself is sound — we'd enable it from the start.
+
 **Our adaptation:** Ollama handles its own downloads for `ollama pull`, but if we support direct GGUF import (for users who want specific quantizations), this pattern applies directly. Implement in the Main process (downloads are coordinated centrally, not per-utility-process).
 
 #### Path safety — sandbox enforcement
@@ -69,13 +71,13 @@ On completion:
 ```
 For each download item:
   1. save_path = jan_data_folder.join(item.save_path)
-  2. save_path = normalize_path(save_path)  // resolve .., ., symlinks
+  2. save_path = normalize_path(save_path)  // resolve .., . components (no symlink resolution)
   3. if !save_path.starts_with(jan_data_folder):
        → return Error("Path is outside of Jan data folder")
        → file never created
 ```
 
-**Why copy:** A malicious MCP server or crafted model manifest could specify `../../.ssh/authorized_keys` as a download path. Path normalization + prefix check is the defense. This is a hard security requirement.
+**Why copy:** A malicious MCP server or crafted model manifest could specify `../../.ssh/authorized_keys` as a download path. Path normalization + prefix check is the defense. This is a hard security requirement. Note: Jan's `normalize_path` only resolves `.` and `..` components — it does not resolve symlinks. Our implementation should use `path.resolve()` for component normalization and consider `fs.realpath()` for symlink resolution as an additional hardening step.
 
 **Our mapping:** In Cowork.ai, all model downloads go to the Ollama data directory or a Cowork-managed `models/` subdirectory. The same normalize-then-check pattern applies:
 
@@ -224,7 +226,7 @@ Jan stores one lockfile per MCP server port:
 File: {app_data_dir}/mcp_lock_{port}.json
 
 {
-  "pid": 12345,
+  "pid": 12345,            // NOTE: this is the app (Jan) PID, not the child process PID
   "port": 17389,
   "server_name": "Jan Browser MCP",
   "created_at": "2024-01-15T10:30:45Z",
@@ -232,9 +234,11 @@ File: {app_data_dir}/mcp_lock_{port}.json
 }
 ```
 
-**Why copy:** The lockfile is the only reliable way to track child processes across app restarts. `pid` enables kill-on-cleanup, `port` enables port-conflict detection, `server_name` enables logging, `hostname` prevents cross-machine lockfile confusion (relevant if data dir is on a network volume).
+**Important caveat:** Jan currently only creates lockfiles for the built-in "Jan Browser MCP" server, not for all MCP servers. Additionally, the `pid` field stores the Jan app's own process ID (`std::process::id()`), not the child MCP server's PID. The lockfile is used to detect whether the Jan app instance that spawned the server is still running — if not, the server is considered orphaned.
 
-**Our mapping:** Store lockfiles in `{cowork_data_dir}/mcp_lock_{port}.json`. Same format, same lifecycle.
+**Why copy the pattern (with fixes):** The lockfile is the only reliable way to track child processes across app restarts. For our implementation, we should store the **child process PID** (not the app PID) to enable direct kill-on-cleanup, and create lockfiles for **all** stdio MCP servers, not just one.
+
+**Our mapping:** Store lockfiles in `{cowork_data_dir}/mcp_lock_{port}.json`. Modify the schema to store the child PID:
 
 #### Stale process detection
 
@@ -269,11 +273,14 @@ cleanup_all_stale_locks():
      b. Read lockfile → get pid
      c. if !is_process_alive(pid) → delete lockfile, log cleanup
      d. if process alive → leave lockfile, log as active
+
+Note: Jan's cleanup_all_stale_locks only removes stale lockfiles — it does NOT kill
+processes. Process killing is handled in a separate flow (find_process_using_port → kill).
 ```
 
-**Why copy:** On app startup after a crash, orphan MCP servers may still be running. The sweep finds them via lockfiles and cleans up. Without this, restarting the app fails because ports are still occupied.
+**Why copy:** On app startup after a crash, orphan MCP servers may still be running. The lockfile sweep identifies stale entries (their app PID no longer running), and a separate flow kills orphan processes by port. Without this, restarting the app fails because ports are still occupied.
 
-**Our mapping:** Call `cleanupStaleLocks()` in the Main process during app initialization, before booting MCP servers.
+**Our mapping:** Call `cleanupStaleLocks()` in the Main process during app initialization, before booting MCP servers. Unlike Jan (which separates lockfile cleanup from process killing), we should combine both in one sweep: detect stale lockfiles → kill the child process by PID → delete the lockfile.
 
 #### Graceful shutdown with SIGTERM → SIGKILL escalation
 
@@ -331,9 +338,9 @@ Fallback: find_process_using_port(port) → get PID
 
 #### Jan Browser MCP special-casing
 
-Jan has hardcoded special handling for "Jan Browser MCP" — a built-in MCP server that gets lockfile treatment while other servers don't. This is tech debt from their browser integration.
+Jan currently only creates/manages lockfiles for "Jan Browser MCP" — a built-in MCP server. Other MCP servers don't get lockfile treatment. This appears to be incremental implementation rather than a deliberate design choice.
 
-**Why skip:** In Cowork.ai, ALL stdio MCP servers get lockfile treatment. No special-casing by server name.
+**Why skip the limitation:** In Cowork.ai, ALL stdio MCP servers get lockfile treatment. No special-casing by server name.
 
 #### Windows `tasklist` fallback
 
@@ -502,13 +509,13 @@ POST /v1/chat/completions
 
 ```
 Security:
-  1. Host allowlist: only requests from trusted hosts pass (blocks port-scanning attacks)
+  1. Host allowlist: requests from trusted hosts pass (blocks port-scanning attacks)
   2. Auth accepts both: Authorization: Bearer {key} OR X-Api-Key: {key}
   3. CORS preflight with allowed methods/headers
-  4. Docs paths exempted from auth (but still host-checked)
+  4. Docs paths (/, /openapi.json) bypass both auth AND host checks
 ```
 
-**What to learn:** If we ever expose a local API (for MCP servers to call back, or for external tools), these security patterns are the baseline. The dual-auth pattern (Bearer + X-Api-Key) is pragmatic for compatibility with different clients.
+**What to learn:** If we ever expose a local API (for MCP servers to call back, or for external tools), these security patterns are the baseline. The dual-auth pattern (Bearer + X-Api-Key) is pragmatic for compatibility with different clients. **Caution:** Jan's docs paths bypass both auth and host checks entirely — this is a design gap we should not replicate. Our local endpoints should always validate the host, even for documentation routes.
 
 ### Skip
 
@@ -571,3 +578,11 @@ Jan serves live API docs at `GET /` with runtime host/port substitution. Nice fo
 | Cortex migration scaffolding | Legacy from Jan's prior architecture |
 | JSON-file thread persistence (desktop) | We use libsql for everything |
 | Frontend localStorage for critical config | We store config in libsql |
+
+---
+
+## Changelog
+
+**v1 (Feb 17, 2026):** Initial draft. All 4 sections complete.
+
+**v1.1 (Feb 17, 2026):** Fact-check corrections: download resume is implemented but called with `resume=false` in normal command path, `normalize_path` doesn't resolve symlinks, lockfile stores app PID not child PID, lockfiles only for Jan Browser MCP not all servers, lockfile cleanup only removes files (doesn't kill processes), docs paths bypass both auth AND host checks.

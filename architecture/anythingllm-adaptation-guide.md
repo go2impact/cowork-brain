@@ -38,14 +38,14 @@ Cowork.ai's Context feature (product-features.md §6) needs to assemble grounded
 AnythingLLM assembles context in a strict priority order that ensures the most relevant material appears first:
 
 ```
-1. Pinned documents        → always included, never displaced
+1. Pinned documents        → always included first (but can be displaced by compression in step 5)
 2. Parsed-file context     → temporary per-thread uploads (not yet embedded)
 3. Vector similarity search → standard RAG retrieval
 4. History backfill         → fillSourceWindow (prior cited chunks)
-5. Compress to fit          → cannonball middle-truncation
+5. Compress to fit          → cannonball middle-truncation (may truncate any context, including pinned docs)
 ```
 
-**Why copy:** This priority order prevents context pollution. Pinned docs (equivalent to our "observation anchors") always survive compression. Transient context (equivalent to our screen-capture data before it's embedded) gets second priority. Vector search fills the middle. History backfill is last-resort gap-filling.
+**Why copy:** This priority order prevents context pollution. Pinned docs (equivalent to our "observation anchors") get first placement, though cannonball compression may truncate them if the total context exceeds the token limit. Transient context (equivalent to our screen-capture data before it's embedded) gets second priority. Vector search fills the middle. History backfill is last-resort gap-filling.
 
 **Our mapping:**
 
@@ -79,7 +79,7 @@ function fillSourceWindow({ nDocs = 4, searchResults, history, filterIdentifiers
 - **Pinned-doc exclusion** — `filterIdentifiers` prevents backfilling chunks that are already injected as pinned docs
 - **Recency-first** — iterates `history.reverse()` so the most recent conversation's citations get priority
 - **Window cap** — `nDocs` default of 4 prevents backfill from overwhelming fresh search results
-- **Pre-limited history** — caller passes at most 20 messages to `fillSourceWindow`, not the entire conversation
+- **Pre-limited history** — caller passes a limited number of messages (default 20, configurable via `workspace.openAiHistory`) to `fillSourceWindow`, not the entire conversation
 
 **How citations are stored (data structure):**
 
@@ -128,7 +128,7 @@ AnythingLLM stores parsed documents as JSON files on disk (`storage/documents/`)
 
 #### Monolithic chat handler orchestration
 
-AnythingLLM's `stream.js` is a 400+ line function that does: auth checking, mode detection, pinned doc loading, parsed file loading, vector search, backfill, compression, LLM call, response streaming, and history saving — all in one function.
+AnythingLLM's `stream.js` (~316 lines) handles mode detection, pinned doc loading, parsed file loading, vector search, backfill, compression, LLM call, response streaming, and history saving in a single flow.
 
 **Why skip:** Mastra's agent system already separates these concerns into tools, context providers, and memory. The RAG assembly should be a composable pipeline, not a monolith.
 
@@ -154,15 +154,15 @@ if (chatMode === "query" AND (no vectorized namespace OR embeddingsCount === 0))
   → exit before any LLM call
 ```
 
-**Checkpoint 2 — Embeddings exist but search returned nothing:**
+**Checkpoint 2 — Embeddings exist but full context assembly returned nothing:**
 ```
-if (chatMode === "query" AND contextTexts.length === 0 after search + backfill):
+if (chatMode === "query" AND contextTexts.length === 0 after pinned + parsed + search + backfill):
   → return custom refusal message
   → save to history with include: false
   → exit before any LLM call
 ```
 
-**Why two checkpoints:** Checkpoint 1 is a fast-path (skip vector search entirely if workspace is empty). Checkpoint 2 catches the case where embeddings exist but none match the query.
+**Why two checkpoints:** Checkpoint 1 is a fast-path (skip vector search entirely if workspace is empty). Checkpoint 2 catches the case where embeddings exist but the full context assembly (pinned docs + parsed files + vector search + backfill) still returned nothing relevant.
 
 **Key design decisions to copy:**
 
@@ -217,7 +217,7 @@ Cowork.ai's MCP Integrations feature (product-features.md §2) needs to manage t
 bootMCPServers():
   1. If any servers already running → return cached results (skip re-boot)
   2. For each server in config:
-     a. If server.autoStart === false → skip, log reason
+     a. If server.anythingllm.autoStart === false → skip, log reason
      b. Try #startMCPServer(name, server)
      c. Store result in mcpLoadingResults[name] = { status, message }
      d. On failure: cleanup (close client, delete from map)
@@ -442,7 +442,7 @@ The tight coupling between flows and Aibitat's `introspect()` / `handlerProps.lo
 
 | Pattern | Source | Cowork.ai target | Rationale |
 |---|---|---|---|
-| Multi-source context assembly order | `stream.js:115-181` | Agents Utility — RAG pipeline | Proven priority order: pins → transient → search → backfill |
+| Multi-source context assembly order | `stream.js:115-196` | Agents Utility — RAG pipeline | Proven priority order: pins → transient → search → backfill (pins can be displaced by compression) |
 | `fillSourceWindow` backfill algorithm | `helpers/chat/index.js:348-442` | Agents Utility — context builder | Solves follow-up query problem without re-embedding |
 | Two-checkpoint query refusal | `stream.js:65-92, 198-227` | Per-agent refusal policy | Prevents hallucination in grounded-query scenarios |
 | `include: false` on refusal history | `stream.js:80` | `excluded_from_context` flag | Prevents "I don't know" from polluting future context |
@@ -472,9 +472,17 @@ The tight coupling between flows and Aibitat's `introspect()` / `handlerProps.lo
 | File-based document JSON persistence | Use libsql for everything (single-DB story) |
 | JSON-file MCP server config | Store in libsql `mcp_servers` table |
 | JSON-file flow storage | Store in libsql `automations` table |
-| Monolithic 400-line chat handler | Mastra separates tools, context, memory into composable pieces |
+| Monolithic ~316-line chat handler | Mastra separates tools, context, memory into composable pieces |
 | Web scraping block type | We capture screen content via Capture Utility, not web scraping |
 | `@agent` prefix invocation | Our agents are invoked by the system (routing), not by user prefix |
 | Workspace-level chat/query mode toggle | Agent function determines grounding mode, not user toggle |
 | ENV-driven provider switching | Typed config in libsql, not environment variables |
 | Docker runtime conditionals | Desktop-only app, no Docker path |
+
+---
+
+## Changelog
+
+**v1 (Feb 17, 2026):** Initial draft. All 4 sections complete.
+
+**v1.1 (Feb 17, 2026):** Fact-check corrections: pinned docs can be displaced by cannonball compression, history limit is configurable via `workspace.openAiHistory` (not always 20), checkpoint 2 runs after full context assembly (not just search+backfill), autoStart check path is `server.anythingllm.autoStart`, stream.js is ~316 lines.

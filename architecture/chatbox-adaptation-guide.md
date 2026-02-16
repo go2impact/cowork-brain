@@ -7,7 +7,7 @@
 **Source material:** `strategy/chatbox-deep-dive/` (reverse-engineering of Chatbox's codebase)
 **Target architecture:** `architecture/system-architecture.md`
 
-**Why Chatbox?** Chatbox is the only repo in our competitive set that uses **Mastra LibSQLVector** — the exact same vector storage stack we're building on. It also has production patterns for libsql in Electron (packaging, migration, corruption avoidance) and an MCP stdio-over-IPC bridge that solves a problem we'll face. These patterns don't exist in aime-chat or Cherry Studio.
+**Why Chatbox?** Chatbox is the only repo in our competitive set that uses **Mastra LibSQLVector** (via `@mastra/libsql`) — the exact same vector storage stack we're building on. It also has production patterns for libsql in Electron (packaging, migration, corruption avoidance) and an MCP stdio-over-IPC bridge that solves a problem we'll face. These patterns don't exist in aime-chat or Cherry Studio.
 
 ---
 
@@ -28,7 +28,7 @@
 
 **Source:** Chatbox's `src/main/knowledge-base/db.ts`
 
-This is the most directly relevant pattern in our entire competitive set. Chatbox uses `@mastra/core`'s `LibSQLVector` with a local `file:` URL — the same setup we plan for `cowork.db`. Their hard-won lessons about single-client access and corruption avoidance are directly applicable.
+This is the most directly relevant pattern in our entire competitive set. Chatbox uses `@mastra/libsql`'s `LibSQLVector` with a local `file:` URL — the same setup we plan for `cowork.db`. Their hard-won lessons about single-client access and corruption avoidance are directly applicable.
 
 ### Copy
 
@@ -150,7 +150,7 @@ pending → processing → done
 | `status` | TEXT | State machine: `pending`, `processing`, `done`, `failed`, `paused` |
 | `chunk_count` | INTEGER | Chunks processed so far (progress checkpoint) |
 | `total_chunks` | INTEGER | Total chunks in document (set after chunking) |
-| `processing_started_at` | TIMESTAMP | When processing began (for timeout detection) |
+| `processing_started_at` | DATETIME | When processing began (for timeout detection) |
 | `error` | TEXT | Human-readable error message on failure |
 
 **We adopt this for our embedding queue.** Our input is different (capture data instead of uploaded files), but the state machine is identical:
@@ -548,3 +548,5 @@ Chatbox adds a guard for Windows ARM64 because there's no native libsql binary f
 ## Changelog
 
 **v1 (Feb 16, 2026):** Initial draft. All 5 sections complete: Mastra LibSQLVector in Electron, Resumable Ingestion Pipeline, libsql Schema Migrations, MCP stdio-over-IPC Bridge, libsql Packaging in Electron.
+
+**v1.1 (Feb 17, 2026):** Fact-check corrections: LibSQLVector comes from `@mastra/libsql` not `@mastra/core`, `processing_started_at` column type is DATETIME not TIMESTAMP.

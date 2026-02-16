@@ -80,7 +80,7 @@ What stays the same:
 
 #### `IpcChannel` typed constants
 
-Cherry Studio defines all IPC channels in `@shared/IpcChannel` — a single source of truth for channel names. Preload, main, and renderer all import from the same enum.
+Cherry Studio defines all IPC channels in `packages/shared/IpcChannel.ts` — a single source of truth for channel names. Preload, main, and renderer all import from the same enum.
 
 We adopt this directly. Our `shared/` directory (see [system-architecture.md — Directory Structure](./system-architecture.md#directory-structure)) is the same location. Channel definitions live there alongside types and constants.
 
@@ -88,7 +88,7 @@ We adopt this directly. Our `shared/` directory (see [system-architecture.md —
 
 #### SpanCacheService — persistent trace storage
 
-Cherry Studio stores completed spans to disk (`~/.cherrystudio/trace/`) via `SpanCacheService`. Spans are cached in-memory during the conversation, then flushed to disk when the topic closes. Supports `getSpans(topicId, traceId)` for later retrieval.
+Cherry Studio stores completed spans to disk (`~/.cherrystudio/trace/`) via `SpanCacheService`. Spans are cached in-memory during the conversation, then flushed to disk when a trace ends (via `saveSpans`). Supports `getSpans(topicId, traceId)` for later retrieval.
 
 We need trace storage for different reasons:
 - **Cherry Studio uses it for:** A trace viewer window (`traceWindow.html`) that shows span timelines for completed conversations.
@@ -112,7 +112,7 @@ Worth evaluating for our Mastra integration. Mastra uses AI SDK internally — i
 
 #### Monkey-patching approach for production
 
-Cherry Studio monkey-patches `ipcMain.handle` globally at app startup. This works but has fragility risks — any code that calls `ipcMain.handle` before `NodeTraceService.init()` won't be patched.
+Cherry Studio monkey-patches `ipcMain.handle` globally at module import time (not inside `init()`). Because the import happens before any IPC handlers are registered, all handlers get patched in practice. However, this pattern is fragile if import order changes.
 
 For our production build, prefer explicit `tracedHandle()` wrappers over monkey-patching. Define a `tracedHandle(channel, handler)` utility in `shared/` that both main and the utility process import. Same trace detection logic, but opt-in per handler rather than global monkey-patch.
 
@@ -126,7 +126,7 @@ Cherry Studio has a separate HTML entry and window for viewing traces. We don't 
 
 **Source:** Cherry Studio's `src/main/mcpServers/hub/` directory
 
-Cherry Studio's MCP hub is a meta-server that aggregates tools from all active MCP servers into a single interface. An LLM can call `hub.list` to discover all available tools, `hub.inspect` to see a tool's signature, `hub.invoke` to call a single tool, or `hub.exec` to run JavaScript that orchestrates multiple tools in parallel.
+Cherry Studio's MCP hub is a meta-server that aggregates tools from all active MCP servers into a single interface. An LLM can call `list` to discover all available tools, `inspect` to see a tool's signature, `invoke` to call a single tool, or `exec` to run JavaScript that orchestrates multiple tools in parallel. (These are tool names within the hub server, not prefixed with `hub.`.)
 
 This pattern is relevant to Cowork.ai's Apps feature, where third-party apps need scoped access to platform capabilities (connected services, capture context, agent reasoning) via MCP tools.
 
@@ -202,7 +202,7 @@ We apply the same timeout + abort pattern to our agent task execution:
 
 #### Built-in server factory pattern
 
-Cherry Studio's `createInMemoryMCPServer(name)` instantiates built-in MCP servers (memory, filesystem, fetch, browser, hub) via `InMemoryTransport` — zero network overhead, same MCP protocol.
+Cherry Studio's `createInMemoryMCPServer(name)` instantiates built-in MCP servers (memory, filesystem, fetch, browser, hub) via `InMemoryTransport` — mostly zero network overhead, same MCP protocol. (Note: at least one built-in server, `nowledgeMem`, uses HTTP transport as a special case.)
 
 **Evaluate for:** Our platform-provided MCP tools. Instead of exposing platform capabilities through custom code, we could run an in-memory MCP server that exposes capture context, agent-as-tool, and connected service data as standard MCP tools/resources. Third-party apps then use the standard MCP client protocol, and we get protocol-level access control for free.
 
@@ -390,9 +390,9 @@ This is relevant to Cowork.ai because we'll need at least 2 entry points (main r
 Cherry Studio's `electron.vite.config.ts` defines separate aliases per build target:
 
 ```
-main:     @main → src/main, @shared → src/shared, @logger → packages/logger
-preload:  @shared → src/shared
-renderer: @renderer → src/renderer/src, @shared → src/shared, @logger → packages/logger
+main:     @main → src/main, @shared → packages/shared, @logger → (process-specific logger service)
+preload:  @shared → packages/shared
+renderer: @renderer → src/renderer/src, @shared → packages/shared, @logger → (process-specific logger service)
 ```
 
 This prevents accidental cross-process imports. A renderer file can't `import '@main/...'` because that alias doesn't exist in the renderer build.
@@ -438,7 +438,7 @@ Cherry Studio's 5 entries:
 For v0.1, we likely have a single entry (`index.html`). The multi-entry config is ready to extend when we add auxiliary windows.
 
 What changes:
-- **Fewer entries, same build config.** electron-vite's multi-entry pattern scales from 1 to N entries without config changes — just add another HTML file and its entry point.
+- **Fewer entries, same build config.** electron-vite's multi-entry pattern scales from 1 to N entries, though each entry must be explicitly declared in `rollupOptions.input`.
 - **No shared state complexity in v0.1.** Cherry Studio's multi-entry necessitated `StoreSyncService` (Section 2). With one entry, we don't need cross-window sync yet.
 
 ### Study
@@ -458,9 +458,9 @@ If the existing codebase already uses `electron-builder` + `webpack`, the migrat
 
 #### Permissive CSP in HTML entries
 
-Cherry Studio's CSP headers include `'unsafe-eval'`, `'unsafe-inline'`, and wildcard connect-src. Their `webPreferences` include `sandbox: false`, `webSecurity: false`, and `allowRunningInsecureContent: true`.
+Cherry Studio's CSP headers include `'unsafe-eval'`, `'unsafe-inline'`, and wildcard connect-src. Their main window's `webPreferences` include `sandbox: false`, `webSecurity: false`, and `allowRunningInsecureContent: true` (though some auxiliary windows like selection toolbar do use `sandbox: true`).
 
-We skip all of this. Our renderer runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` (see [system-architecture.md — Process Model](./system-architecture.md#process-model)). Security posture is non-negotiable for a desktop app with access to work services and activity data.
+We skip the permissive settings. Our renderer runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` (see [system-architecture.md — Process Model](./system-architecture.md#process-model)). Security posture is non-negotiable for a desktop app with access to work services and activity data.
 
 ---
 
@@ -471,7 +471,7 @@ We skip all of this. Our renderer runs with `contextIsolation: true`, `nodeInteg
 | Pattern | Cherry Studio source | Cowork.ai target | Why |
 |---|---|---|---|
 | `tracedInvoke` IPC trace propagation | `src/preload/index.ts:95-100` + `src/main/services/NodeTraceService.ts:33-46` | `src/shared/tracedInvoke.ts` + `src/electron/main.ts` + `src/electron/agents.worker.ts` | 4-process trace waterfall for debugging latency and failures |
-| `IpcChannel` typed constants | `@shared/IpcChannel` | `src/shared/ipc-channels.ts` | Single source of truth for all IPC channel names |
+| `IpcChannel` typed constants | `packages/shared/IpcChannel.ts` | `src/shared/ipc-channels.ts` | Single source of truth for all IPC channel names |
 | MCP client cache with dedup | `src/main/services/MCPService.ts` (clients + pendingClients Maps) | `src/core/mcp/client-cache.ts` | Prevents duplicate connections during rapid agent tool calls |
 | Notification-driven cache invalidation | `MCPService.setupNotificationHandlers()` | Same pattern in our MCP connection manager | Fresh tool lists when external services change |
 | Tool call abort semantics | `MCPService.activeToolCalls` + `AbortController` per call | `src/core/mcp/tool-executor.ts` | Per-call cancellation for safety rails and user "Stop" |
@@ -493,14 +493,14 @@ We skip all of this. Our renderer runs with `contextIsolation: true`, `nodeInteg
 
 | Pattern | Why skip |
 |---|---|
-| Monkey-patching `ipcMain.handle` globally | Fragile — prefer explicit `tracedHandle()` wrappers |
+| Monkey-patching `ipcMain.handle` globally | Works via import-time patching but fragile if order changes — prefer explicit `tracedHandle()` wrappers |
 | Dedicated trace viewer window | Trace data integrates into MCP Browser execution log |
 | Hub `exec` tool (arbitrary JS in worker) | Security risk for multi-tenant app model |
 | Implicit trust for tool execution | We require per-tool approval and per-app scoping |
 | Full multi-model fan-out UX (grid/tabs/fold) | We only compare 2 responses (local + cloud retry) |
 | @-mention model selection | Users pick tiers, not models |
 | `selectionToolbar.html` / `selectionAction.html` | We don't intercept text selection |
-| Permissive `webPreferences` (`sandbox: false`, `webSecurity: false`) | Security posture is non-negotiable |
+| Permissive `webPreferences` on main window (`sandbox: false`, `webSecurity: false`) | Security posture is non-negotiable |
 | Mini window's tight coupling to provider state | Auxiliary windows should be lightweight |
 
 ### What Cherry Studio Has That aime-chat Doesn't (Our Gap-Fillers)
@@ -518,3 +518,5 @@ We skip all of this. Our renderer runs with `contextIsolation: true`, `nodeInteg
 ## Changelog
 
 **v1 (Feb 16, 2026):** Initial draft. All 5 sections complete: IPC Trace Propagation, MCP Hub Meta-Server, Multi-Window State Sync, Multi-Model Conversation UX, electron.vite Multi-Entry Build.
+
+**v1.1 (Feb 17, 2026):** Fact-check corrections: IpcChannel now in `packages/shared/`, span flush on trace end not topic close, monkey-patch applied at module import time, hub tool names not prefixed with `hub.`, nowledgeMem uses HTTP transport, `@shared` alias points to `packages/shared`, multi-entry requires explicit `rollupOptions.input` declaration, sandbox settings vary per window.

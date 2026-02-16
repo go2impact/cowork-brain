@@ -1,6 +1,6 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.1 — February 17, 2026**
+**v1.2 — February 17, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
@@ -76,6 +76,48 @@ Five processes. Each has a single responsibility. If one crashes, the others sur
 | **Playwright Child** | Browser automation for MCP Browser feature. Spawns its own Chromium instances. | On demand | Kill and respawn. No impact on anything else. |
 
 **Why multi-process:** Native C++ addons can segfault. Embedding generation is CPU-heavy. Playwright can hang. None of these should freeze the UI or kill the app. Electron's built-in IPC connects all processes — no custom serialization protocol, no HTTP hop.
+
+### Playwright Execution Model
+
+v0.1 uses a persistent Playwright context — login state (cookies, localStorage) survives across sessions. Essential for operating inside authenticated apps (Zendesk, Gmail, Slack) without re-authentication each launch.
+
+| Concern | How it works |
+|---|---|
+| **Command flow** | Agent sends browser commands via IPC → Playwright child executes → results back via IPC |
+| **Process boundary** | Every browser action crosses a process boundary (~1-2ms latency). Trade-off: crash isolation — a hung page can't freeze the agent. |
+| **Persistent context** | Playwright launches with persistent user data directory so login state survives restarts |
+| **Crash recovery** | If Playwright child hangs or crashes, Agents & RAG utility detects broken pipe, kills the child, and respawns. No impact on capture or UI. |
+
+**v0.2 evaluation candidates:**
+- **Stagehand** (`@browserbasehq/stagehand`) — LLM-driven automation without selectors. Aligns with "coachable" MCP Browser vision. Requires vision model or DOM analysis. Not v0.1.
+- **CDP remote** — attach to user's actual Chrome (logged-in sessions without re-auth). Powerful but privacy-sensitive. Requires explicit consent and visible indicator ("AI is connected to your browser").
+
+### Boot Sequence
+
+Three processes boot in parallel. Main waits for both utilities to signal ready before creating the renderer.
+
+**Main process:**
+1. AppManager (lifecycle, settings)
+2. ThermalManager (hardware monitoring)
+3. Spawn Capture Utility + Agents & RAG Utility
+4. Wait for both utility processes to signal ready
+5. Create BrowserWindow (renderer)
+
+**Capture Utility:**
+1. NativeAddonManager (load `coworkai-keystroke-capture`, `coworkai-activity-capture`)
+2. CaptureBufferManager (activity buffer, keystroke chunker)
+3. DBManager (libsql sync connection to `cowork.db`)
+4. Signal ready to main
+
+**Agents & RAG Utility:**
+1. DBManager (libsql async connection to `cowork.db`)
+2. ProviderRegistry (Ollama + Gemini + OpenRouter via `createProviderRegistry()`)
+3. MastraManager (agent orchestration, memory)
+4. MCPManager (service connections, OAuth credential loading)
+5. EmbeddingManager (queue, Qwen3-0.6B via Ollama)
+6. Signal ready to main
+
+Each step within a process is sequential — later steps depend on earlier ones. The three processes are independent and boot concurrently.
 
 ---
 
@@ -185,6 +227,63 @@ Renderer ←──IPC──→ Main Process ←──IPC──→ Capture Utilit
 | Playwright → Agents | Page state, action results |
 
 **The renderer never talks directly to capture or agents.** Everything routes through main. This keeps the sandboxed renderer clean and gives main a single point for logging, rate-limiting, and access control.
+
+### Streaming Protocol
+
+Chat responses stream from the Agents & RAG utility through main to the renderer:
+
+```
+Agents & RAG Utility                Main Process              Renderer
+    │                                   │                        │
+    │  SSE-formatted JSON chunks        │                        │
+    │  via MessagePort                  │                        │
+    ├──────────────────────────────────►│                        │
+    │                                   │  Passthrough relay     │
+    │                                   │  (zero logic added)    │
+    │                                   ├───────────────────────►│
+    │                                   │                        │
+    │                                   │            useChat() via IpcChatTransport
+    │                                   │            renders chunks as they arrive
+```
+
+**Chunk encoding:** `"data: ${JSON.stringify(chunk)}\n\n"` — SSE-formatted JSON. Same encoding as AI SDK's standard streaming protocol.
+
+**Chunk validation:** Every chunk is validated against a Zod schema (`uiMessageChunkSchema`) at the renderer boundary. Malformed chunks fail loudly instead of corrupting UI state.
+
+**Error recovery:** If the Agents & RAG utility crashes mid-stream, main detects the broken MessagePort and sends an `error` chunk to the renderer. The renderer surfaces this to the user ("Agent disconnected — retrying...") rather than silently hanging.
+
+### IPC Handler Pattern (BaseManager + @channel)
+
+All IPC handlers follow a decorator pattern adapted from AIME Chat. Managers extend `BaseManager`; methods decorated with `@channel('namespace:method')` auto-register as IPC handlers in the constructor.
+
+```
+@channel('chat:sendMessage')
+async sendMessage(threadId, content) { ... }
+// → auto-registers as IPC handler for 'chat:sendMessage'
+```
+
+Where handlers register depends on the process:
+
+| Process | Registration target | Example channels |
+|---|---|---|
+| **Main** | `ipcMain.handle()` | `app:getSettings`, `app:setTheme` |
+| **Capture Utility** | `parentPort` / `MessagePort` | `capture:getStatus`, `capture:toggleStream` |
+| **Agents & RAG Utility** | `parentPort` / `MessagePort` | `chat:sendMessage`, `mcp:connect`, `context:query` |
+
+The renderer calls `window.cowork.namespace.method()` → preload routes through `ipcRenderer.invoke()` → main either handles directly or forwards to the appropriate utility process.
+
+### Preload Namespace Design
+
+The preload script exposes `window.cowork.*` with scoped namespaces:
+
+| Namespace | Routes to | Purpose |
+|---|---|---|
+| `cowork.app` | Main | Settings, theme, lifecycle |
+| `cowork.chat` | Main → Agents & RAG | Chat messages, agent responses |
+| `cowork.mcp` | Main → Agents & RAG | MCP connections, tool calls |
+| `cowork.browser` | Main → Agents & RAG → Playwright | Browser automation commands |
+| `cowork.capture` | Main → Capture | Capture status, stream toggles |
+| `cowork.context` | Main → Agents & RAG | Context Card data, activity queries |
 
 ---
 
@@ -386,6 +485,21 @@ continuity      RAG retrieval  dense logs       + activity signals
 
 **RAG retrieval flow:** Query arrives → embedded via Qwen3-0.6B → vector similarity search against `cowork.db` → context assembled with priority: conversation history (highest) → working memory → semantic recall → observational summaries (lowest) → fed to model alongside query.
 
+### Mastra Memory Configuration
+
+The four layers map to a single Mastra Memory config object:
+
+| Layer | Mastra primitive | Setting | What it provides |
+|---|---|---|---|
+| **Conversation History** | `lastMessages` | Enabled (configurable N) | Recent messages loaded into context for short-term continuity |
+| **Working Memory** | `workingMemory` | `{ enabled: true }` | Persistent user profile, preferences, communication style — always in context |
+| **Semantic Recall** | `semanticRecall` | `{ enabled: true }` | RAG retrieval from embedded conversations + capture data via LibSQLVector |
+| **Observational Memory** | `observationalMemory` | `true` | Background two-stage compression (Observer → observations, Reflector → reflections). 5-40x compression ratio. |
+
+Storage backend: `LibSQLStore` + `LibSQLVector` from `@mastra/libsql`, both pointing at `cowork.db`.
+
+**Open question — Observer model:** Observational Memory's Observer/Reflector defaults to Gemini 2.5 Flash (1M context helps). Can DeepSeek-R1-8B serve as Observer locally, or must this go through cloud? Needs benchmarking. Mastra docs warn that Claude 4.5 models perform poorly as Observer — model choice matters here.
+
 ---
 
 ## Agent Orchestration
@@ -415,6 +529,20 @@ Agents use two execution paths, often in the same task:
 6. Browser — click Send (visible)
 7. MCP — log to audit trail (background)
 
+### Sub-Agent Delegation
+
+Context isolation via disposable sub-agents. When the platform agent needs to process large volumes of data, it delegates to a sub-agent rather than loading everything into its own context.
+
+**Pattern:** Parent agent delegates heavy work → sub-agent runs in its own context → sub-agent returns summary → raw data never pollutes parent context.
+
+**Example:** Agent needs to find a pattern across 50 Zendesk tickets. Instead of loading all 50 tickets into its context (blowing the context window), it spawns a ticket-analysis sub-agent. The sub-agent reads tickets, identifies the pattern, returns a 200-token summary. Parent continues with the summary.
+
+Key properties:
+- **Stateless spawning** — each sub-agent invocation is independent. No follow-up messages, no memory of previous calls.
+- **Dynamic description** — available sub-agents are auto-described to the parent. Adding a new specialist only requires registration.
+- **Work-oriented specialists** — not code-oriented (like AIME's Explore/Plan). Specialists emerge from actual usage patterns: ticket analysis, email batch processing, context summarization.
+- **Same process** — sub-agents run inside the Agents & RAG utility process. No extra IPC hop for delegation.
+
 ### MCP Connections
 
 Services connect via MCP servers. The Agents & RAG utility process manages all connections.
@@ -425,6 +553,30 @@ Services connect via MCP servers. The Agents & RAG utility process manages all c
 | Tool registry | Each service exposes tools (list_tickets, send_email, etc.) |
 | Scoped access | Apps declare what MCP tools they need. Platform grants per-app. |
 | Disconnect handling | Action pauses, user notified with exact blocker + reconnect action |
+
+**MCPClient status lifecycle:**
+
+```
+starting ──→ running ──→ stopped (user toggled off)
+                │
+                └──→ error (connection lost, auth expired)
+                       │
+                       └──→ starting (reconnect attempt)
+```
+
+| Status | UX |
+|---|---|
+| `starting` | "Connecting to Zendesk..." |
+| `running` | Green dot, tools available |
+| `stopped` | Grey dot, user toggled off |
+| `error` | Red dot + error message + reconnect action |
+
+**OAuth flow:**
+- System browser opens for login (renderer can't handle OAuth popups — sandboxed)
+- PKCE flow via `OAuthClientProvider` from `@modelcontextprotocol/sdk`
+- Credentials stored on-device: `{userData}/.mcp/{serverUrlHash}_tokens.json`
+- Token refresh handled automatically; expiry detection triggers "reconnect" prompt in UI
+- Main process opens browser and captures OAuth callback, forwards tokens to Agents & RAG utility
 
 ### Safety Rails
 
@@ -545,6 +697,7 @@ src/
 | Database | libsql | Native Mastra integration, built-in vectors, one SDK, proven in Electron | [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md) |
 | Native addons | Keep custom `coworkai-*` | Critical capability gaps in open-source alternatives. Electron deadlock in uiohook-napi. | [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](../decisions/NATIVE_ADDON_REPLACEMENT_RESEARCH.md) |
 | Local LLM | DeepSeek-R1-8B via Ollama | Reasoning capability, Qwen base (Tagalog+EN), fits 16GB Mac | [llm-architecture.md](./llm-architecture.md) |
+| AI SDK version | Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) | Interface contract between agents and providers, and between main process and React frontend. v6 over v5: mechanical renames (automated codemod), `@ai-sdk/react` v3 in renderer. Mastra 1.0+ supports both natively. | [decision-log.md](../decisions/decision-log.md#2026-02-16--ai-sdk-version-v6-not-v5) |
 | Cloud providers | Gemini direct (`@ai-sdk/google`) + OpenRouter (`@ai-sdk/openai-compatible`) | Gemini direct for free tier (no middleman). OpenRouter for paid tiers (multi-provider gateway). Managed via AI SDK `createProviderRegistry()`. | [llm-architecture.md](./llm-architecture.md) |
 | Agent orchestration | Mastra.ai via `@mastra/libsql` | Native libsql integration. Target: embedded in Electron utility process (needs spike). | [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md) |
 | Embeddings | Qwen3-Embedding-0.6B via Ollama | ~500MB RAM, strong Tagalog+EN, stored in libsql built-in vector search | [llm-architecture.md](./llm-architecture.md) |
@@ -585,3 +738,4 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 
 **v1 (Feb 16, 2026):** Initial draft. Consolidates process model, data flow, IPC contract, capture layer, database layer, LLM stack, memory system, agent orchestration, feature-to-infrastructure mapping, thermal management, and directory structure from six existing decision/architecture docs into a single reference.
 **v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.
+**v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
