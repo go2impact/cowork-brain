@@ -277,7 +277,7 @@ Six input streams provide the AI with work context:
 | **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
 | **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
 
-**Data flow:** Raw capture → local SQLite (better-sqlite3, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
+**Data flow:** Raw capture → local SQLite (libsql, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
 
 **Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
 

@@ -115,23 +115,25 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
-## 2026-02-12 — Vector store: SQLite-vec (not LanceDB)
+## 2026-02-12 — Vector store: SQLite-vec (not LanceDB) → 2026-02-16 superseded by libsql
 
-**Changed:** Locked local vector store to SQLite-vec instead of "LanceDB or SQLite-vec."
+**Changed:** Originally locked local vector store to SQLite-vec instead of LanceDB. **Superseded:** Database stack research led to libsql for everything — built-in vector search replaces sqlite-vec as a separate extension.
 
-**From → To:** Two options under consideration → SQLite-vec only.
+**From → To:** LanceDB or SQLite-vec → SQLite-vec only → **libsql built-in vectors** (see [DATABASE_STACK_RESEARCH.md](DATABASE_STACK_RESEARCH.md))
 
-**Why:**
+**Why (original):**
 1. Already using SQLite for activity store. Embeddings live in the same .db file. One database, one file, zero-ops.
 2. LanceDB is a separate dependency with its own process. On 8GB Windows machines (v0.2), every extra dependency is a failure point.
 3. At our scale (thousands to tens of thousands of embeddings per user), SQLite-vec performance is more than sufficient.
 4. Simpler backup/restore: one file.
 
-**Cost impact:** None — both are free/local. SQLite-vec is slightly less engineering effort.
+**Why (superseded by libsql):** libsql has built-in vector search (DiskANN) that eliminates the need for sqlite-vec as a separate extension. One SDK for both structured data and vectors, native Mastra integration, no `.dylib` packaging friction. See database stack research for full analysis.
 
-**Source:** Gemini technical review (Feb 12, 2026)
+**Cost impact:** None — both are free/local.
 
-**Approved by:** Scott
+**Source:** Gemini technical review (Feb 12, 2026); database stack research (Feb 16, 2026)
+
+**Approved by:** Scott (original), Rustan (libsql update)
 
 ---
 
@@ -250,7 +252,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - Four active repos (`coworkai-desktop`, `coworkai-agent`, `coworkai-activity-capture`, `coworkai-keystroke-capture`) → Gut `coworkai-desktop` and `coworkai-agent` in place, keep capture addon repos as-is
 - Custom C++ native addons for capture → **Keep both** (deep research found open-source replacements have critical capability gaps — see [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](NATIVE_ADDON_REPLACEMENT_RESEARCH.md))
 - `coworkai-agent` tracking engine → Keep capture orchestration (activity buffers, keystroke chunking, SQLite persistence), kill timer/sync/media/employer auth. Mastra.ai handles AI agent orchestration separately.
-- Tracking-oriented SQLite schema → New schema designed for context/memory/embeddings with `sqlite-vec`
+- Tracking-oriented SQLite schema → New schema designed for context/memory/embeddings with `libsql` built-in vectors (replaced `better-sqlite3` + `sqlite-vec`)
 - Single-process main architecture → Multi-process isolation (capture utility, agents/RAG utility, Playwright child, sandboxed renderer)
 
 **Why:**
@@ -268,6 +270,31 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - ~~Archive `coworkai-agent` (original decision):~~ **Reversed.** The agent contains reusable capture orchestration that would need to be rebuilt. Gut the tracking code, keep the capture plumbing.
 
 **Full writeup:** [`decisions/DESKTOP_SALVAGE_PLAN.md`](DESKTOP_SALVAGE_PLAN.md)
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-16 — Database stack: libsql for everything (replaces better-sqlite3 + sqlite-vec)
+
+**Changed:** Unified the database stack to `libsql` — one SDK for capture data, agent memory, and vector search. Replaces `better-sqlite3` + `sqlite-vec` (two separate native modules).
+
+**From → To:** `better-sqlite3` (structured storage) + `sqlite-vec` (vector extension) + custom Mastra adapter → `libsql` (sync package for capture) + `@mastra/libsql` (native Mastra integration for agents). One `.db` file, one SQL dialect, one native module.
+
+**Why:**
+1. Fact-check disproved the original blocker. "libsql is unproven in Electron" was wrong — Beekeeper Studio (v4.6+, June 2024) and Outerbase Studio Desktop both ship it in production.
+2. A custom Mastra adapter for better-sqlite3 + sqlite-vec is 4-6 days of work (not 2-3 as initially estimated) plus ongoing maintenance tracking Mastra interface changes. libsql gets native Mastra integration for free.
+3. Two SQL dialects (sqlite-vec's `vec_f32()` vs libsql's `F32_BLOB`) means vector queries can't be shared between app code and agent code. One dialect eliminates this.
+4. sqlite-vec has a `.dylib.dylib` macOS packaging bug and requires `asarUnpack` workarounds. libsql's built-in vectors have no extension packaging.
+5. Electron 37.1.0 ships Node 22.16.0 — satisfies `@mastra/libsql`'s requirement (Node >= 22.13.0). Mastra runs in an Electron utility process with crash isolation via built-in IPC. No sidecar or HTTP hop needed.
+
+**Cost impact:** None — both stacks are free/local. Saves 4-6 days of custom adapter engineering and eliminates ongoing adapter maintenance.
+
+**Alternatives considered:**
+- Stay with better-sqlite3 + sqlite-vec (original plan): Proven but requires custom Mastra adapter (~500-800 lines for vector alone), two native modules, sqlite-vec packaging friction. Rejected — libsql eliminates all of this.
+- Hybrid (libsql sync for capture + @mastra/libsql for agents): This IS the recommended approach. Both access the same WAL-mode `.db` file.
+
+**Full research:** [`decisions/DATABASE_STACK_RESEARCH.md`](DATABASE_STACK_RESEARCH.md)
 
 **Approved by:** Rustan
 

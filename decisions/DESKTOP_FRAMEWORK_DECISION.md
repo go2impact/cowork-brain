@@ -34,10 +34,10 @@ Every major dependency in the application is a Node.js library or TypeScript fra
 | Playwright | Node.js | Native | Needs sidecar | Needs sidecar |
 | Mastra.ai | Node.js | Native | Needs sidecar | Needs sidecar |
 | RAG pipeline (loaders, embeddings, vector DB) | Node.js | Native | Needs sidecar | Needs sidecar |
-| uiohook-napi | Node.js | Native | CGEvent taps (same API) | Needs sidecar |
-| active-win | Node.js | Native | NSWorkspace (same API) | Needs sidecar |
+| coworkai-keystroke-capture (custom N-API) | Node.js | Native | CGEvent taps (same API) | Needs sidecar |
+| coworkai-activity-capture (custom N-API) | Node.js | Native | NSWorkspace (same API) | Needs sidecar |
 | AppleScript (URL grab) | Node.js | child_process | NSAppleScript | Needs sidecar |
-| better-sqlite3 | Node.js | Native | GRDB (good equivalent) | Rust has own SQLite |
+| libsql | Node.js | Native | GRDB (good equivalent) | Rust has own SQLite |
 
 In both Swift and Tauri, **100% of the application logic would live in a Node.js sidecar**. The native layer would manage windows and the system tray — nothing more.
 
@@ -115,9 +115,9 @@ Choosing Swift means rebuilding foundational infrastructure that already exists 
 
 ### Global Input Capture Has No Native Advantage
 
-Global input capture in Swift uses `CGEvent.tapCreate()`, a C-level Core Graphics API bridged into Swift. It requires the same Accessibility permission that Node.js packages require. The `uiohook-napi` package calls the same underlying macOS APIs (via `libuiohook`), wraps them in a clean event emitter interface, and works identically on macOS, Windows, and Linux.
+Global input capture in Swift uses `CGEvent.tapCreate()`, a C-level Core Graphics API bridged into Swift. It requires the same Accessibility permission that Node.js packages require. Our custom `coworkai-keystroke-capture` addon calls the same underlying macOS APIs (`CGEventTapCreate`, `CGEventKeyboardGetUnicodeString`), wraps them in a clean N-API interface, and works on macOS and Windows.
 
-The same applies to active window detection (`active-win` calls `NSWorkspace` via native bindings) and browser URL extraction (`osascript` in Node produces the same result as `NSAppleScript` in Swift).
+The same applies to active window detection (`coworkai-activity-capture` calls `NSWorkspace` + `CGWindowList` + Accessibility APIs via native bindings) and browser URL extraction (AppleScript + Accessibility API fallback).
 
 Going native buys nothing for the capture layer.
 
@@ -172,9 +172,9 @@ In Tauri, the Rust backend would manage windows and the system tray — nothing 
 │  │  │  Automations │ │ Agents       │ │                  │
 │  │  └─────────────┘ └──────────────┘ │                  │
 │  │  ┌─────────────┐ ┌──────────────┐ │                  │
-│  │  │  Local RAG   │ │ uiohook-napi │ │                  │
-│  │  │  Pipeline    │ │ active-win   │ │                  │
-│  │  └─────────────┘ │ AppleScript  │ │                  │
+│  │  │  Local RAG   │ │ keystroke +  │ │                  │
+│  │  │  Pipeline    │ │ activity     │ │                  │
+│  │  └─────────────┘ │ capture      │ │                  │
 │  │                   └──────────────┘ │                  │
 │  └────────────────────────────────────┘                  │
 │                 │                                        │
@@ -237,7 +237,7 @@ Our application needs none of these from the desktop shell. The heavy lifting (b
 │  │  - App lifecycle management                         │  │
 │  │  - IPC routing between processes                    │  │
 │  │  - System tray                                      │  │
-│  │  - better-sqlite3 (shared local DB)                 │  │
+│  │  - libsql (shared local DB)                         │  │
 │  │  - Light coordination only — no heavy work here     │  │
 │  └────┬──────────────┬──────────────┬─────────────────┘  │
 │       │              │              │                     │
@@ -250,12 +250,12 @@ Our application needs none of these from the desktop shell. The heavy lifting (b
 │  │ DATA CAPTURE    │ │            │ │                   │ │
 │  │                 │ │ AGENTS &   │ │ React/Svelte UI   │ │
 │  │ ┌─────────────┐│ │ RAG        │ │ Dashboard         │ │
-│  │ │ uiohook-napi││ │            │ │ Config, Logs      │ │
-│  │ │ (global keys ││ │ ┌────────┐│ │                   │ │
-│  │ │  + mouse)    ││ │ │Mastra  ││ │ Fully sandboxed.  │ │
+│  │ │ keystroke-   ││ │            │ │ Config, Logs      │ │
+│  │ │ capture      ││ │ ┌────────┐│ │                   │ │
+│  │ │ (global keys)││ │ │Mastra  ││ │ Fully sandboxed.  │ │
 │  │ ├─────────────┤│ │ │.ai     ││ │ contextIsolation  │ │
-│  │ │ active-win   ││ │ │Agents  ││ │ nodeIntegration:  │ │
-│  │ │ (focused app)││ │ ├────────┤│ │ false             │ │
+│  │ │ activity-    ││ │ │Agents  ││ │ nodeIntegration:  │ │
+│  │ │ capture      ││ │ ├────────┤│ │ false             │ │
 │  │ ├─────────────┤│ │ │Embed-  ││ │ sandbox: true     │ │
 │  │ │ AppleScript  ││ │ │dings   ││ │                   │ │
 │  │ │ (browser URL)││ │ ├────────┤│ │ No Node.js access.│ │
@@ -285,7 +285,7 @@ Our application needs none of these from the desktop shell. The heavy lifting (b
 
 Each workload runs in its own process for fault isolation and performance:
 
-- **Capture layer** is crash-isolated — if uiohook-napi's native addon segfaults, only the capture utility process dies and auto-restarts. The UI, agents, and automations are unaffected.
+- **Capture layer** is crash-isolated — if a native capture addon segfaults, only the capture utility process dies and auto-restarts. The UI, agents, and automations are unaffected.
 - **Agents and RAG** are isolated from the UI — CPU-heavy embedding generation and LLM calls won't block the renderer or freeze the dashboard.
 - **Playwright** runs as a child process and spawns its own browser instances — a hung automation cannot take down the app.
 - **Renderer is fully sandboxed** — `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`. Zero Node.js access. All privileged operations go through explicitly defined IPC channels. This is functionally the same security model as Tauri's command system.
@@ -308,7 +308,7 @@ All processes communicate through Electron's built-in IPC — fast, battle-teste
 
 Do NOT run everything in the main process. Specifically:
 
-- **uiohook-napi in the main process** — it is a native C addon. A segfault in the native layer kills the entire app with no recovery. Isolate it in a utility process that can auto-restart.
+- **Native capture addons in the main process** — they are native C/C++ addons. A segfault in the native layer kills the entire app with no recovery. Isolate them in a utility process that can auto-restart.
 - **Playwright in the main process** — a hung automation or browser crash blocks the event loop. Run it as a child process. Playwright already spawns its own browser instances, so this is natural.
 - **Embedding generation in the main process** — CPU-heavy computation blocks IPC routing and window management. Isolate in a utility process.
 - **nodeIntegration: true in the renderer** — any XSS vulnerability in the UI becomes full system access. Never enable this.
@@ -327,8 +327,8 @@ src/
 │   ├── automations/       # Playwright flows
 │   ├── agents/            # Mastra.ai agent bundles
 │   ├── rag/               # RAG pipeline
-│   ├── capture/           # uiohook-napi, active-win, URL extraction
-│   └── store/             # better-sqlite3 data layer
+│   ├── capture/           # coworkai-keystroke-capture, coworkai-activity-capture wrappers
+│   └── store/             # libsql data layer
 ├── electron/              # Electron-specific wiring
 │   ├── main.ts            # Main process — lifecycle, IPC routing
 │   ├── preload.ts         # Preload script for renderer
@@ -357,7 +357,7 @@ Electron's security has improved substantially. The multi-process architecture r
 | Playwright | Needs embedded Node.js | Needs Node sidecar | Runs natively |
 | Mastra.ai agents | Needs embedded Node.js | Needs Node sidecar | Runs natively |
 | RAG ecosystem | Near-empty in Swift | Needs Node sidecar | Rich JS/TS ecosystem |
-| Global input capture | Same APIs, no advantage | Rust crates exist, but Node sidecar likely | uiohook-napi, clean API |
+| Global input capture | Same APIs, no advantage | Rust crates exist, but Node sidecar likely | Custom N-API addons, clean API |
 | Browser URL extraction | Same AppleScript | Same AppleScript via sidecar | Same AppleScript |
 | Dashboard / data table UI | Painful in SwiftUI/AppKit | Web (good) | Web (good) |
 | AI/automation ecosystem | Nonexistent | Needs Node sidecar | Largest ecosystem |

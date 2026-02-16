@@ -49,7 +49,7 @@ There is no old product to maintain separately. We continue in the existing repo
 
 | What | Source | Why | Action |
 |---|---|---|---|
-| Electron Forge config | `forge.config.ts` | Packaging pipeline is weeks of work to rebuild. Plugins, makers, platform targets all configured. | Update `rebuildConfig`: remove `coworkai-video-capture`, `coworkai-audio-capture`, `clipboard-capture`. Keep `better-sqlite3`, `coworkai-activity-capture`, `coworkai-keystroke-capture`. |
+| Electron Forge config | `forge.config.ts` | Packaging pipeline is weeks of work to rebuild. Plugins, makers, platform targets all configured. | Update `rebuildConfig`: remove `coworkai-video-capture`, `coworkai-audio-capture`, `clipboard-capture`, `better-sqlite3`. Add `libsql`. Keep `coworkai-activity-capture`, `coworkai-keystroke-capture`. |
 | macOS code signing | `forge.config.ts` (osxSign, osxNotarize) | Hardened runtime + notarization required for macOS distribution. Already configured with Apple ID/Team ID. | No changes. |
 | Windows code signing | `forge.config.ts` (windowsSign) | Required for Windows distribution. Azure Trusted Signing already integrated. | No changes. |
 | S3 publisher | `forge.config.ts` (publisher-s3) | Distribution infrastructure. Profile-based key structure handles alpha/beta/production channels. | No changes. |
@@ -125,7 +125,7 @@ The agent is the orchestrator that sits between `coworkai-desktop` and the nativ
 
 | What | Source | Why | Action |
 |---|---|---|---|
-| Agent lifecycle | `src/main.ts` | `init(config)` + `better-sqlite3` WAL setup is the correct pattern for high-frequency writes. Proven in production. | Refactor: remove `sync.start()` call. Keep WAL pragmas. |
+| Agent lifecycle | `src/main.ts` | `init(config)` + SQLite WAL setup is the correct pattern for high-frequency writes. Proven in production. | Refactor: remove `sync.start()` call. Replace `better-sqlite3` with `libsql` (sync package). Keep WAL pragmas. |
 | Feature flags | `src/config.ts` | Config-driven capture toggling lets us enable/disable capture streams without code changes. Needed for user privacy controls. | Remove `timer`, `screen`, `audio`, `video` flags. Keep `activity`, `keyboard`, `clipboard`. |
 | Activity orchestration | `src/agent/activity/index.ts`, `src/agent/activity/lib/x-win.ts` | `subscribeActiveWindow()` + browser enrichment is the core capture loop. Rebuilding this means re-solving window change detection, title/URL extraction, and addon coordination. | No changes to orchestration logic. New schema underneath. |
 | Activity buffer management | `src/database/activity/manager.ts` | Bounded 5-buffer queue with `autoFlushIfNeeded()` prevents unbounded memory growth during rapid window switching. This pattern is correct for sidecar too. | Refactor: point at new table schema. Keep buffer/flush logic. |
@@ -142,16 +142,19 @@ The agent is the orchestrator that sits between `coworkai-desktop` and the nativ
 | SyncQueue | `src/database/sync/sync.ts` | Batch sync, retry logic, `sync` flag columns. All employer sync. |
 | Media modules | Screen, audio, video agent modules | Not in v0.1 scope. |
 | Employer identity | `agent.setUserId(user.id)` pattern | Employer-scoped `user_id` isolation. Local-first has no employer identity. |
-| SQLite schema | `activities`, `keystrokes`, `clipboards`, `timelogs` tables | Replace with new context/memory/embeddings schema. Keep `better-sqlite3` WAL patterns and buffer flush approach. |
+| SQLite schema | `activities`, `keystrokes`, `clipboards`, `timelogs` tables | **Replace entirely** with new schema designed from [product-features.md](../product/product-features.md). Old tables are tracking-oriented; new tables serve context/memory/embeddings/agent state. Keep WAL patterns and buffer flush approach. Migrate from `better-sqlite3` to `libsql`. |
 
 ### 4. New SQLite schema for context/memory/embeddings
 
-**All three agree** on using `better-sqlite3` + `sqlite-vec`. The schema itself is entirely new:
+**All three agree** on SQLite as the data layer. After [database stack research](./DATABASE_STACK_RESEARCH.md), the decision is **libsql for everything** — one SDK for both capture data and Mastra agent memory. The schema itself is entirely new:
 
 - Designed for context retrieval and RAG, not activity reporting
-- Embedding storage via `sqlite-vec` extension
+- Embedding storage via libsql's built-in vector search (no extension needed)
 - Retention enforcement and privacy controls built in
 - No timer aggregation tables, no sync queue tables
+- Native Mastra integration via `@mastra/libsql` (Mastra runs in Agents & RAG utility process)
+
+> **Schema is not finalized.** The existing schema from [COWORKAI_TECHNICAL_REFERENCE.md](./COWORKAI_TECHNICAL_REFERENCE.md) documents the old tracking-oriented tables (`activities`, `keystrokes`, `clipboards`, `timelogs`). The new schema will be designed from scratch based on the feature set in [product-features.md](../product/product-features.md) — specifically the six input streams (Context), four memory layers (Memory Architecture), and Mastra agent state requirements. Do not assume the old schema carries over.
 
 ### 5. Multi-process architecture
 
@@ -215,14 +218,15 @@ Three independent analyses disagreed on three points. The resolutions:
 
 | Dependency | Purpose | Where it runs |
 |---|---|---|
-| Mastra.ai | Agent orchestration | Utility process (agents & RAG) |
+| libsql (sync) | Database — capture writes, structured storage, built-in vector search | Capture utility process |
+| @mastra/libsql | Database — agent memory, embeddings, semantic recall (same .db file) | Agents & RAG utility process |
+| Mastra.ai | Agent orchestration | Agents & RAG utility process |
 | Playwright | Browser automation (MCP Browser) | Child process |
-| Ollama client | Local LLM (DeepSeek-R1-8B) + embeddings (Qwen3-Embedding-0.6B) | Utility process (agents & RAG) |
-| sqlite-vec | Vector store for RAG | Utility process (agents & RAG) |
-| MCP SDK | Connect to Zendesk, Gmail, Slack, etc. | Utility process (agents & RAG) |
-| OpenRouter client | Cloud inference gateway | Utility process (agents & RAG) |
+| Ollama client | Local LLM (DeepSeek-R1-8B) + embeddings (Qwen3-Embedding-0.6B) | Agents & RAG utility process |
+| MCP SDK | Connect to Zendesk, Gmail, Slack, etc. | Agents & RAG utility process |
+| OpenRouter client | Cloud inference gateway | Agents & RAG utility process |
 
-Existing dependencies carried over: `better-sqlite3`, `coworkai-keystroke-capture`, `coworkai-activity-capture`.
+Existing dependencies carried over: `coworkai-keystroke-capture`, `coworkai-activity-capture`. `better-sqlite3` replaced by `libsql`.
 
 ---
 
@@ -239,7 +243,7 @@ src/
 │   ├── chat/                   # Chat logic (on-demand + proactive)
 │   ├── mcp/                    # MCP server connections + tool registry
 │   ├── memory/                 # Embedding, vector store, RAG pipeline
-│   └── store/                  # better-sqlite3 + sqlite-vec data layer
+│   └── store/                  # libsql data layer (capture + vectors)
 ├── electron/                   # Electron-specific wiring only
 │   ├── main.ts                 # Main process — lifecycle, IPC routing, tray
 │   ├── preload.ts              # Preload script for renderer
@@ -269,7 +273,7 @@ src/
 - Define typed IPC contract and process boundaries
 - Stand up capture utility process with `coworkai-keystroke-capture` + `coworkai-activity-capture`
 - Move main process to coordinator-only role
-- Integrate `sqlite-vec` into local database with new schema
+- Integrate `libsql` into local database with new schema (replaces `better-sqlite3` + `sqlite-vec`)
 
 ### Phase 2: Context + Data Layer
 
@@ -316,13 +320,15 @@ src/
 
 1. **Bundle ID rename** — Existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar?
 2. **Electron version** — Existing uses Electron 37.1.0. Confirm target version.
-3. **Native module rebuild list** — Existing `forge.config.ts` rebuilds 6 native modules (includes video, audio, clipboard captures being killed). Trim to: `better-sqlite3`, `coworkai-keystroke-capture`, `coworkai-activity-capture`. Confirm no others needed.
+3. **Native module rebuild list** — Existing `forge.config.ts` rebuilds 6 native modules (includes video, audio, clipboard captures being killed). Trim to: `libsql`, `coworkai-keystroke-capture`, `coworkai-activity-capture`. Confirm no others needed.
 4. **MCP server packaging** — Bundled with the app, installed on demand, or running remotely?
 5. **App Gallery hosting** — Where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service?
 
 ---
 
 ## Changelog
+
+**v4 (Feb 16, 2026):** Updated database stack from `better-sqlite3` + `sqlite-vec` to `libsql` for everything. One SDK for both capture data and Mastra agent memory. Built-in vector search eliminates sqlite-vec extension. Mastra runs in Agents & RAG utility process (Electron 37.1.0 ships Node 22.16.0, satisfying `@mastra/libsql` requirement). See [DATABASE_STACK_RESEARCH.md](./DATABASE_STACK_RESEARCH.md).
 
 **v3 (Feb 16, 2026):** Replaced fork-and-gut with gut-in-place for all repos. No old product to maintain — forking adds complexity for zero benefit. Reversed decision #3 — keep `coworkai-agent` active, gut tracking-specific code, retain capture orchestration (activity buffers, keystroke chunking, SQLite persistence). Added file-level specificity to decisions #1 and #3 (exact source files to keep vs gut). Updated repo disposition, dependencies, execution phases, and open questions.
 

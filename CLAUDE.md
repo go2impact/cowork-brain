@@ -40,11 +40,14 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 
 ## Key Technical Context
 
+- **Database:** libsql for everything — capture data + Mastra agent memory + vector search in one `.db` file (see decisions/DATABASE_STACK_RESEARCH.md)
+- **Agent orchestration:** Mastra.ai via `@mastra/libsql`, runs in Electron utility process
+- **Electron version:** 37.1.0 (Node 22.16.0) — existing codebase baseline
 - **Local brain:** DeepSeek-R1-Distill-Qwen-8B (4-bit, Ollama) — handles ~70% of daily work, free
 - **Cloud brain:** OpenRouter gateway — Gemini 2.5 Flash (free tier), Gemini 3 Flash (Boost), Claude Sonnet 4.5 (Pro), Claude Opus 4.6 (Max)
 - **Complexity router:** Rule-based, not ML — must stay under 10ms
 - **Audio:** Whisper via Core ML on Apple Neural Engine, kept warm in memory on 16GB+ Macs
-- **Embeddings:** Qwen3-Embedding-0.6B via Ollama, stored in SQLite-vec (same DB as activity store)
+- **Embeddings:** Qwen3-Embedding-0.6B via Ollama, stored via libsql built-in vector search (same DB as activity store)
 - **Desktop:** Electron (Swift and Tauri were evaluated and rejected — see decisions/DESKTOP_FRAMEWORK_DECISION.md)
 - **Design system:** Material Design 3 (M3) mandatory, dark theme first, maps to Tailwind
 - **v0.1 scope:** Mac-only (16GB+ Apple Silicon for local, 8GB gets cloud-only)
@@ -68,6 +71,7 @@ Changes in one doc often require updates to others. Watch for ripple effects:
 - Model change → update `architecture/llm-architecture.md` + `strategy/llm-strategy.md` + decision log
 - Price change → update `strategy/` + `gtm/` + decision log
 - UI/interaction change → update `design/design-system.md` + decision log
+- Stack/dependency change (e.g., database, native addons) → grep old name across entire repo, update: `CLAUDE.md`, `architecture/`, `decisions/DESKTOP_SALVAGE_PLAN.md`, `decisions/DESKTOP_FRAMEWORK_DECISION.md`, `decisions/decision-log.md`, `product/product-features.md`. Do NOT update `decisions/COWORKAI_TECHNICAL_REFERENCE.md` — it documents the existing codebase, not the target.
 
 ## Review Ownership
 
