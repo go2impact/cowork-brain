@@ -4,12 +4,12 @@
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
-**Open items (2 questions, 1 inline):**
+**Open items (1 question, 1 inline):**
 
 | # | Question | Blocks v0.1? | What it takes to resolve |
 |---|---|---|---|
 | 2 | **Database schema** | Yes — can't write code without tables | Design from product-features.md: 5 capture streams, 4 memory layers, agent state |
-| 3 | **IPC contract** | Yes — can't wire processes | Full channel inventory + Zod schemas (patterns defined, channels not enumerated) |
+| 3 | **IPC contract** | **Resolved — Draft** | 34 channels, 9 namespaces, full Zod schemas. See [ipc-contract.md](./ipc-contract.md) |
 
 Inline: **Observer model choice** (line 612, needs benchmarking)
 
@@ -948,7 +948,6 @@ Apps see `window.cowork.*` injected via the app's preload script. **Apps never t
 |---|---|
 | `listTools()` | Returns tools the app has permission to use (platform filters by grant) |
 | `callTool(name, args)` | Request the platform to execute an MCP tool on the app's behalf (permission-checked at preload, executed by Agents & RAG) |
-| `chat(message)` | Send a message to the platform agent — requires `permissions.agent: true` in manifest (preload-gated, same as `callTool`). Platform selects the model and manages API keys (app never sees them) |
 | `getAppConfig()` | App metadata, granted permissions, connected services |
 
 > **Deferred:** `onMessage(callback)` (platform-to-app push channel for streaming agent responses) — deferred to Phase 3. Sprint 8 SDK is request/response only. See [phase-1b-sprint-plan.md](./phase-1b-sprint-plan.md) exclusions list.
@@ -976,14 +975,14 @@ Permission grants stored in `cowork.db`. Manifest apps get their declared permis
 - Includes `cowork.manifest.json` declaring required tools/permissions
 - Has a clean React structure that esbuild bundles without issues
 
-**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. No Gemini proxy — generic exports that call Gemini directly need to be adapted to use `window.cowork.chat()` per the guidelines.
+**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. No Gemini proxy — generic exports that call Gemini directly need to be adapted to use `window.cowork.callTool('platform_chat', ...)` per the guidelines.
 
 ### Design Decisions (Resolved)
 
 | Question | Decision | Reasoning |
 |---|---|---|
 | Preprocessing pipeline | **esbuild bundle** | Fast (~10-100ms). Handles TSX/TS natively. Produces single output file that resolves all imports. Solves preprocessing + import resolution in one step. |
-| Gemini API proxy | **Not needed.** Template apps use `window.cowork.chat()` — platform handles model selection + API keys. Generic exports must adapt to use `window.cowork.chat()` per guidelines. | Eliminates an entire subsystem (protocol handler or Express proxy). Apps don't manage API keys or model selection — the platform does. |
+| Gemini API proxy | **Not needed.** Template apps use `window.cowork.callTool('platform_chat', ...)` — platform handles model selection + API keys. Generic exports must adapt to the same call pattern per guidelines. | Eliminates an entire subsystem (protocol handler or Express proxy). Apps don't manage API keys or model selection — the platform does. |
 | Import resolution | **esbuild bundles deps** — no import maps needed. esbuild resolves bare specifiers during bundling. | Falls out of the esbuild decision. No runtime import resolution, no CDN dependency, works offline. |
 | Manifest authoring | **Template includes `cowork.manifest.json`.** Manifest permissions auto-granted at install. Generic exports without manifest: user selects permissions manually. | Template apps get frictionless install. Generic exports fall back to user-selected permissions. All permissions revocable in Settings. |
 
@@ -1000,7 +999,7 @@ User uploads .zip
     ↓
 4. If esbuild fails → show error + link to compatibility guidelines
     ↓
-5. Grant permissions: manifest present → auto-grant declared tools + agent access (unknown tool IDs ignored, re-evaluated when new MCP connections are added); no manifest → prompt user to select from available tools + "Allow agent chat" toggle
+5. Grant permissions: manifest present → auto-grant declared tools (unknown tool IDs ignored, re-evaluated when new MCP connections are added); no manifest → prompt user to select from available tools
     ↓
 6. Store app metadata + permissions in cowork.db (revocable in Settings)
     ↓
@@ -1014,13 +1013,12 @@ User uploads .zip
   "name": "Zendesk Dashboard",
   "description": "View and manage support tickets",
   "permissions": {
-    "tools": ["zendesk_list_tickets", "zendesk_get_ticket", "zendesk_update_ticket"],
-    "agent": true
+    "tools": ["zendesk_list_tickets", "zendesk_get_ticket", "zendesk_update_ticket", "platform_chat"]
   }
 }
 ```
 
-Used at install time (manifest apps auto-grant declared tools + agent access; no-manifest apps prompt user selection) and runtime (preload checks every `callTool()` and `chat()` against granted permissions in `cowork.db`).
+Used at install time (manifest apps auto-grant declared tools; no-manifest apps prompt user selection) and runtime (preload checks every `callTool()` against granted permissions in `cowork.db`).
 
 ---
 
@@ -1187,7 +1185,7 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 - **MCP install registry** → N/A. MCP servers are bundled, not user-installed. No registry needed.
 - **App-to-platform MCP transport** → Preload IPC relay. Apps call `window.cowork.*` → preload → `ipcRenderer.invoke()` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. No network exposure, no port, no auth tokens. MCP tool calls are infrequent (~seconds between calls) so the extra main-process relay hop (~1ms) is irrelevant.
 - **Refusal message exclusion** → Custom Mastra `MemoryProcessor`. A `RefusalFilter` processor strips refusal messages from the context window before sending to the LLM, while leaving them in storage for UI display. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface (same pattern as the built-in `ToolCallFilter`) runs after fetch and before LLM — exactly the right hook.
-- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). No Gemini proxy — apps use `window.cowork.chat()`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions at install time.
+- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). No Gemini proxy — apps use `window.cowork.callTool('platform_chat', ...)`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions at install time.
 
 ---
 
@@ -1206,6 +1204,8 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 ---
 
 ## Changelog
+
+**v1.5.3 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `chat(message)` method to match product rule "Apps get tools, not agents." Apps now reach platform reasoning through `callTool('platform_chat', ...)` (agent-as-tool), with normal tool permission checks. Updated Platform SDK table, two-track generic-export guidance, Gemini proxy decision row, installation flow permission step, and the resolved decisions summary.
 
 **v1 (Feb 16, 2026):** Initial draft. Consolidates process model, data flow, IPC contract, capture layer, database layer, LLM stack, memory system, agent orchestration, feature-to-infrastructure mapping, thermal management, and directory structure from six existing decision/architecture docs into a single reference.
 **v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.

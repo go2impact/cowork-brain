@@ -423,3 +423,25 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - Remove screen recording entirely from roadmap: rejected — coached visible automation still benefits from optional screen context in later versions.
 
 **Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Apps permission boundary: tools-only (agent access via `platform_chat` tool)
+
+**Changed:** Removed direct app-level agent permission (`chat` / `permissions.agent`) from the active schema and architecture contract. Apps now access agent reasoning only through a platform-provided MCP tool (`platform_chat`) using the same `callTool()` path as other tools.
+
+**From → To:** Mixed model (`callTool(...)` + direct app SDK `chat(...)` with special agent permission) → Tools-only model (`callTool(...)` for all app actions, including agent-as-tool via `platform_chat`).
+
+**Why:**
+1. Product contract is explicit: "Apps get tools, not agents." The direct `chat(...)` path created a policy contradiction between product and architecture docs.
+2. One permission path is easier to reason about and audit. Tool grants stay in one table (`app_permissions`) and one evaluator (preload tool permission check), reducing edge-case drift.
+3. Safety and cost controls remain centralized. The platform still chooses model/routing/budget when `platform_chat` executes, but apps never receive direct agent surface area.
+4. The tools-only contract simplifies installer UX (no extra "agent chat" toggle) and keeps SDK semantics consistent for template and generic app exports.
+
+**Cost impact:** Neutral to slightly positive. No new infrastructure; removes special-case permission logic and associated QA paths.
+
+**Alternatives considered:**
+- Keep direct `chat(...)` and reinterpret it as "not really agent access": rejected — wording still conflicts with product contract and duplicates permission pathways.
+- Remove agent-style access for apps entirely: rejected — apps still need platform reasoning in some flows; agent-as-tool preserves capability without expanding surface area.
+
+**Approved by:** Rustan

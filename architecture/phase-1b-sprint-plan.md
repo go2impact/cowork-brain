@@ -19,7 +19,7 @@ From [system-architecture.md](./system-architecture.md) — Phase 1B cannot ship
 |---|---|---|---|
 | 1 | Mastra in utility process | **Resolved — GO** | All 7 spike steps passed (Feb 17). Utility process viable for Mastra + libsql + MessagePort streaming. See `coworkai-desktop/docs/plans/mastra-utility-process-viability-spike-result.md` |
 | 2 | Database schema | Not started | Design from [product-features.md](../product/product-features.md): 5 capture streams, 4 memory layers, agent state |
-| 3 | IPC contract | Not started | Full channel inventory + Zod schemas (patterns defined in system-architecture.md, channels not enumerated) |
+| 3 | IPC contract | **Resolved — Draft** | 34 channels, 9 namespaces, full Zod schemas. See [ipc-contract.md](./ipc-contract.md) |
 
 ---
 
@@ -151,7 +151,7 @@ Full channel inventory + Zod schemas. [system-architecture.md § IPC Contract](.
 | `chat:*` | `sendMessage`, `streamResponse`, `getThreads`, `getThread` | Renderer → Main → Agents | Yes (Sprint 5) |
 | `context:*` | `query`, `getRecentActivity`, `getContextCard` | Renderer → Main → Agents | Yes (Sprint 5) |
 | `mcp:*` | `connect`, `disconnect`, `listConnections`, `listTools`, `getStatus` | Renderer → Main → Agents | Yes (Sprint 7) |
-| `apps:*` | `install`, `list`, `remove`, `callTool`, `chat`, `listTools`, `getAppConfig` | Renderer → Main → Agents | Yes (Sprint 8) |
+| `apps:*` | `install`, `list`, `remove`, `callTool`, `listTools`, `getAppConfig` | Renderer → Main → Agents | Yes (Sprint 8) |
 | `app:*` | `getSettings`, `setTheme` | Renderer → Main | Yes (Sprint 6) |
 | `system:*` | `health`, `retry` | Main → Renderer (health), Renderer → Main (retry) | Yes (Sprint 6) |
 | `browser:*` | `execute`, `getState`, `stop`, `getExecutionLog` | Renderer → Main → Agents → Playwright | Phase 4 |
@@ -163,11 +163,12 @@ Full channel inventory + Zod schemas. [system-architecture.md § IPC Contract](.
 
 ---
 
-### Sprint 3: Folder Restructure + libsql Swap
+### Sprint 3 (Complete): Folder Restructure + libsql Swap
 
 **Repo:** coworkai-desktop
 **Blocks:** Sprint 4, Sprint 5
 **Depends on:** Spike decision (resolved — GO)
+**Result: DONE** — PR [#10](https://github.com/go2impact/coworkai-desktop/pull/10) (Feb 17, 2026). All validation gates passed.
 
 Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Structural foundation — no business logic yet.
 
@@ -195,6 +196,13 @@ Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Stru
 5. **Validate:** `npm install` → `tsc --noEmit` → `npm start`
 
 **Output:** Clean folder structure, libsql installed, build passes, app launches (does nothing new yet).
+
+**What was actually implemented (deviations from plan):**
+- `src/renderer/views/` directories deferred to Sprint 6 (collides with existing renderer HTML entry points)
+- Mastra utility spike removed from build path (files kept on disk for reference)
+- Logger `fs-extra` → native `fs`; `fs-extra` added as explicit devDependency for CSS generator
+- `src/core/store/database.ts` created with `DB_FILENAME` and `toDbUrl()` helper
+- `src/shared/types/index.ts` barrel re-exports from `src/app/common/types/`
 
 ---
 
@@ -372,7 +380,7 @@ Connect one MCP server, expose its tools to the agent, show connection status in
 **Repo:** coworkai-desktop
 **Depends on:** Sprint 6 (renderer) + Sprint 7 (MCP tools available for apps to call)
 
-Render a third-party app (Google AI Studio export) in a sandboxed WebContentsView. The app can call MCP tools and chat with the agent via the platform SDK.
+Render a third-party app (Google AI Studio export) in a sandboxed WebContentsView. The app can call MCP tools through the platform SDK, including a platform-provided `platform_chat` tool for agent-as-tool use cases.
 
 **What's in scope:**
 
@@ -380,7 +388,7 @@ Render a third-party app (Google AI Studio export) in a sandboxed WebContentsVie
 |---|---|
 | WebContentsView per app (sandboxed, partition-isolated) | Generic AI Studio export support (template apps only) |
 | Custom `cowork-app://` protocol with path traversal protection | Full App Gallery UI |
-| App preload: `window.cowork.callTool()`, `window.cowork.chat()`, `window.cowork.listTools()`, `window.cowork.getAppConfig()` | `onMessage()` push channel (platform → app event subscription) |
+| App preload: `window.cowork.callTool()`, `window.cowork.listTools()`, `window.cowork.getAppConfig()` | `onMessage()` push channel (platform → app event subscription) |
 | esbuild bundling of uploaded zip → single JS output | Advanced permission management UI |
 | `cowork.manifest.json` parsing → auto-grant declared permissions | |
 | Per-app permission check at preload layer (before IPC) | |
@@ -413,7 +421,7 @@ Render a third-party app (Google AI Studio export) in a sandboxed WebContentsVie
 
 4. **App preload + platform SDK:**
    - `window.cowork.callTool(name, args)` → permission check → `ipcRenderer.invoke()` → main → agents
-   - `window.cowork.chat(message)` → permission check (`agent: true`) → `ipcRenderer.invoke()` → main → agents
+   - Agent reasoning path: `window.cowork.callTool('platform_chat', { message })` (same tool permission path as any other MCP tool)
    - `window.cowork.listTools()` → return tools the app has permission to use
    - `window.cowork.getAppConfig()` → app metadata, granted permissions
 
@@ -423,7 +431,7 @@ Render a third-party app (Google AI Studio export) in a sandboxed WebContentsVie
    - Click app → open in WebContentsView alongside main renderer
    - Remove app option
 
-6. **Validate:** Upload a template app zip → archive hardening passes → esbuild bundles → app renders in WebContentsView → app calls `window.cowork.callTool()` → MCP tool executes → result returned to app → app calls `window.cowork.chat()` → agent responds
+6. **Validate:** Upload a template app zip → archive hardening passes → esbuild bundles → app renders in WebContentsView → app calls `window.cowork.callTool()` → MCP tool executes → result returned to app → app calls `window.cowork.callTool('platform_chat', ...)` → agent response returns
 
 **Output:** One app running in sandboxed WebContentsView, calling MCP tools through the platform. **This completes Phase 1B.**
 
@@ -443,7 +451,7 @@ Sprint 2: IPC Contract ───────────┤              │
   (no blockers)                   │              │
                                   │              │
 Sprint 3: Folder Restructure ─────┤              │
-  (no blockers)                   │              │
+  (COMPLETE — PR #10)             │              │
                                   ▼              ▼
                     Sprint 4: Capture    Sprint 5: Agents
                          │                    │
@@ -458,9 +466,8 @@ Sprint 3: Folder Restructure ─────┤              │
                     Sprint 8: Basic Apps Runtime
 ```
 
-Sprint 0 is complete (GO). Sprints 1-2 (design, in cowork-brain) have no blockers — start immediately.
-Sprint 3 (restructure, in coworkai-desktop) also unblocked.
-Sprints 4-5 can run in parallel if there's a second pair of hands, otherwise sequential.
+Sprints 0 and 3 are complete. Sprints 1-2 (design, in cowork-brain) have no blockers — start immediately.
+Sprints 4-5 are unblocked by Sprint 3 (pending Sprint 1+2 design output). Can run in parallel if there's a second pair of hands, otherwise sequential.
 Sprint 6 validates the core runtime. Sprint 7 adds external service connectivity. Sprint 8 adds the apps runtime.
 
 **Parallel track:** M3 component library built independently, integrated in Sprint 6.
@@ -483,13 +490,15 @@ Explicitly deferred to later phases:
 - Generic AI Studio export support (Phase 5 — Sprint 8 supports template apps only)
 - Full App Gallery UI (Phase 5)
 - MCP advanced features: orphan cleanup, notification-driven invalidation, per-call abort (Phase 3)
-- App `onMessage()` push channel — platform-to-app event subscription (Phase 3 — Sprint 8 SDK is request/response only: `callTool`, `chat`, `listTools`, `getAppConfig`)
+- App `onMessage()` push channel — platform-to-app event subscription (Phase 3 — Sprint 8 SDK is request/response only: `callTool`, `listTools`, `getAppConfig`)
 
 Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, storage, basic chat, MCP tool calling, and sandboxed apps. Embedding/RAG, automations, browser automation, and advanced MCP features layer on top.
 
 ---
 
 ## Changelog
+
+**v11 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `window.cowork.chat()` references to match product rule "Apps get tools, not agents." Sprint 8 now routes agent-style requests through `window.cowork.callTool('platform_chat', ...)` (agent-as-tool), and the request/response SDK list was updated accordingly.
 
 **v10 (Feb 17, 2026):** Review fixes. (1) Fixed dependency graph — Sprint 5 now has incoming arrows from Sprints 1/2/3 matching prose. (2) Restored changelog dates to Feb 17 (v8/v9 were incorrectly changed to Feb 16). (3) Replaced `keytar` with Electron `safeStorage` API across Sprint 7 — zero additional native bindings, removes ASAR unpack entry. Updated system-architecture.md and decision log. (4) Added `cowork.apps` namespace to system-architecture.md preload table. (5) Resolved Sprint 2 output location — `architecture/ipc-contract.md` (new doc). (6) Clarified Sprint 6 Apps route is a placeholder shell until Sprint 8. (7) Marked 3 resolved open questions in DESKTOP_SALVAGE_PLAN.md with cross-references. (8) Updated MASTRA_ELECTRON_VIABILITY.md status from "Research" to "Resolved — GO".
 
