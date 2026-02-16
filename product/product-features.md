@@ -57,7 +57,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 ### 1. Apps
 
-Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Context engine — giving apps access to work context, activity history, and connected service data.
+Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Google AI Studio is the on-ramp: someone who's never built an MCP server can use a Cowork template and have a working app in minutes. Those apps have access to platform-provided MCPs, which are connected to data from the Context engine — giving apps access to work context, activity history, and connected service data.
 
 **Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, routing (local vs. cloud brain), budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
 
@@ -85,7 +85,7 @@ Where users find and install new apps. Browse by category, search by name, and i
 
 ### 2. MCP Integrations
 
-MCP Integrations are the foundation layer. Apps and Chat both depend on connected services — MCP Integrations is where you manage those connections.
+MCP Integrations are the pipes to external services. Unlike Apps (which have their own UI and logic), integrations have no standalone interface — they expose data and actions that the platform agent and Apps can both use. Apps and Chat both depend on connected services; MCP Integrations is where you manage those connections.
 
 **What it covers:**
 
@@ -239,7 +239,7 @@ Agents use custom tools to execute tasks through two paths:
 
 ### 5. Automations
 
-Rules and workflows that run without user intervention. Automations let you set up recurring or trigger-based tasks so the AI handles routine work automatically.
+Rules and workflows that run without user intervention. Automations trigger across both Apps and MCP Integrations — any action available to the platform agent can be automated. Set up recurring or trigger-based tasks so the AI handles routine work automatically.
 
 **Examples:**
 
