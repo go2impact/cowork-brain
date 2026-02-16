@@ -1,6 +1,6 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.3.1 — February 17, 2026**
+**v1.3.2 — February 17, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
@@ -433,7 +433,7 @@ Reused from the existing codebase — proven buffer management and event chunkin
 
 Separate indexes enable per-type queries (e.g., "find similar activity") or merged cross-type queries with different relevance weights. Same `LibSQLVector.createIndex()` API per index.
 
-**Schema migration strategy** — Additive `ALTER TABLE ADD COLUMN` with duplicate-column tolerance (try/catch, ignore "column already exists"). No version-tracked migration framework for v0.1. Per-process schema ownership: the Capture Utility process creates and migrates app tables (activities, input events, context streams); the Agents & RAG Utility process creates and migrates its own tables (embedding queue, agent operations, automations, mcp_servers, mcp_install_progress, tool_policies). Mastra manages `LibSQLStore` and `LibSQLVector` tables internally. Neither process ALTERs tables owned by the other.
+**Schema migration strategy** — Additive `ALTER TABLE ADD COLUMN` with duplicate-column tolerance (try/catch, ignore "column already exists"). No version-tracked migration framework for v0.1. Per-process schema ownership: the Capture Utility process creates and migrates app tables (activities, input events, context streams); the Agents & RAG Utility process creates and migrates its own tables (embedding queue, agent operations, automations, mcp_servers, mcp_connection_state, tool_policies). Mastra manages `LibSQLStore` and `LibSQLVector` tables internally. Neither process ALTERs tables owned by the other.
 
 ---
 
@@ -738,7 +738,7 @@ Key properties:
 
 ### MCP Connections
 
-Services connect via MCP servers. The Agents & RAG utility process manages all connections.
+MCP servers are **bundled** with the app — developers (us) build and ship each integration. Users don't install or discover MCP servers; they connect to bundled ones by providing credentials. The Agents & RAG utility process manages all connections.
 
 | Concern | How it works |
 |---|---|
@@ -781,19 +781,18 @@ starting ──→ running ──→ stopped (user toggled off)
 
 **Per-call abort** — `AbortController` per tool call with unique `callId`. Enables per-call cancellation for safety rails (cost threshold exceeded) and user "Stop" button. Active tool calls tracked in a Map; `abortTool(callId)` signals the controller.
 
-**MCP install state machine** — Guided 7-step flow for installing new MCP servers:
+**MCP connection flow** — Since MCP servers are bundled (dependencies ship with the app), the user-facing flow is connection, not installation:
 
 ```
-1. FETCHING_MANIFEST  → Fetch server manifest from registry or manual config
-2. CHECKING_DEPS      → Run dependency checks (Node.js version, npm/python)
-3. DEPS_REQUIRED      → [PAUSE] Show what's needed + install instructions
-4. CONFIG_REQUIRED    → [PAUSE] Show config form (API keys, URLs) from JSON schema
-5. STARTING_SERVER    → Start MCP server + list tools (validate working)
-6. SAVING_CONFIG      → Save connection config to libsql mcp_servers table
-7. COMPLETED          → Show success, clean up install state
+1. SELECT_SERVICE    → User picks from bundled integrations (Zendesk, Gmail, Slack, etc.)
+2. CONFIG_REQUIRED   → [PAUSE] Show config form (API keys, URLs) from bundled JSON schema
+3. AUTHENTICATING    → OAuth flow or API key validation
+4. STARTING_SERVER   → Start bundled MCP server + list tools (validate working)
+5. SAVING_CONFIG     → Save connection config to libsql mcp_servers table
+6. CONNECTED         → Show success, tools available
 ```
 
-Install state persisted in libsql (survives app restart — user can install Node.js, relaunch, and continue). Platform-specific dependency checking with actionable error messages ("node >= 18.0.0 required — install with `brew install node`"). Abort/cancel with cleanup at any step via `AbortController`.
+Connection state persisted in libsql (survives app restart). Abort/cancel with cleanup at any step via `AbortController`.
 
 ### Safety Rails
 
@@ -904,7 +903,7 @@ How each product feature maps to the underlying infrastructure:
 
 | Feature | Processes involved | Key infrastructure |
 |---|---|---|
-| **Apps** | Renderer + Agents & RAG | Apps rendered in renderer. Apps access platform via MCP tools (agent-as-tool pattern). App Gallery in renderer. |
+| **Apps** | Renderer + Agents & RAG | Apps rendered in renderer. Apps access platform via MCP tools (agent-as-tool pattern). v0.1: user uploads zip file, Cowork renders it locally. No hosted gallery. |
 | **MCP Integrations** | Agents & RAG | MCP SDK manages connections. Health monitoring. OAuth. |
 | **Chat** (on-demand) | Renderer → Main → Agents & RAG | User message → IPC → complexity router → local/cloud brain → RAG context assembly → response → IPC → renderer |
 | **Proactive Notifications** | Agents & RAG → Main → macOS | Trigger engine polls capture data + MCP services → throttling gates → main dispatches macOS notification → user accepts/dismisses/expands. See [Proactive Notifications](#proactive-notifications). |
@@ -1051,14 +1050,16 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 | # | Question | Impact |
 |---|---|---|
 | 1 | **Mastra in utility process** — needs proof-of-concept spike. Can `@mastra/core` + `@mastra/libsql` initialize and run agents in an Electron utility process? | Architecture of Agents & RAG process. Fallback: main process or separate server. |
-| 2 | **MCP server packaging** — bundled with the app, installed on demand, or running remotely? | Affects app bundle size, update mechanism, and offline capability. |
-| 3 | **App Gallery hosting** — where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service? | Affects Apps feature architecture and distribution. |
-| 4 | **Bundle ID rename** — existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar? | Affects signing, notarization, and auto-updater. |
-| 5 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
-| 6 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts`, `tracedInvoke` pattern for observability, `system:health` + `system:retry` channels for service health. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
-| 7 | **App-to-platform MCP transport** — how do third-party apps (rendered in Electron) access platform MCP tools? IPC bridge in preload (more secure, custom transport) vs. local HTTP server (reuses standard MCP client, opens a port). | Affects Apps feature security model and implementation. |
-| 8 | **MCP install registry** — where do MCP server manifests come from? Own registry, community standard (e.g., MCP marketplace), or manual config only for v0.1? | Affects MCP install state machine (step 1: fetch manifest). |
-| 9 | **Refusal message exclusion** — query refusal messages must be visible in the UI but excluded from Mastra's `lastMessages` context loading. Options: store refusals outside Mastra's message store (separate UI-only table), use Mastra metadata filtering if supported, or post-filter Mastra's context output. | Affects RAG query refusal implementation. |
+| 2 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
+| 3 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts`, `tracedInvoke` pattern for observability, `system:health` + `system:retry` channels for service health. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
+| 4 | **App-to-platform MCP transport** — how do third-party apps (rendered in Electron) access platform MCP tools? IPC bridge in preload (more secure, custom transport) vs. local HTTP server (reuses standard MCP client, opens a port). | Affects Apps feature security model and implementation. |
+| 5 | **Refusal message exclusion** — query refusal messages must be visible in the UI but excluded from Mastra's `lastMessages` context loading. Options: store refusals outside Mastra's message store (separate UI-only table), use Mastra metadata filtering if supported, or post-filter Mastra's context output. | Affects RAG query refusal implementation. |
+
+**Resolved:**
+- **MCP server packaging** → Bundled. Developers ship each integration with the app. Users connect, not install.
+- **App Gallery hosting** → No hosted gallery for v0.1. Users upload zip files, Cowork renders locally.
+- **Bundle ID rename** → No rename. Keep existing coworkai bundle ID.
+- **MCP install registry** → N/A. MCP servers are bundled, not user-installed. No registry needed.
 
 ---
 
@@ -1082,3 +1083,4 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 **v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
 **v1.3 (Feb 17, 2026):** Integrated 5 remaining adaptation guides (Jan, Chatbox, LobeChat, AnythingLLM, Cherry Studio). Added: database hardening (single-client access, vector index namespacing, schema migration strategy), model lifecycle (preflight fit check, download integrity, path safety), embedding pipeline (resumable ingestion, batch checkpoints, crash recovery), RAG context assembly (multi-source priority order, fillSourceWindow backfill, query refusal), agent execution model (persistent operations, instruction executor, max-step safety), multi-phase tool approval policy (6-phase hierarchy, mixed execution, approval state), MCP enhancements (orphan cleanup, client cache with dedup, notification-driven invalidation, per-call abort, 7-step install state machine), IPC observability (tracedInvoke, 4-process waterfall, typed IpcChannel constants, trace storage), automations engine (flow executor, variable substitution, block types, flow-as-tool), build configuration (ASAR unpack, post-pack patching, process-specific aliases, chunk inlining), complexity router askId grouping, explicit hardware reserve breakdown.
 **v1.3.1 (Feb 17, 2026):** Normative behavior pass. Added: startup failure policy (timeout + degraded boot, service states, retry with backoff, degraded mode capabilities), service health IPC contract (`system:health` + `system:retry` channels), Keychain-backed MCP credential storage (replaces plaintext token files), crash-safe notification throttling (all counters persisted to cowork.db), PID-reuse safety for MCP orphan cleanup (executable path + argv hash identity check before kill). Review fixes: renamed "Chat (proactive)" to "Proactive Notifications", screen recording marked not-in-v0.1, MCPClient lifecycle added stopped→starting transition, Phase 2 renamed to "Mandatory approval tools", Phase 4 per-server policy defined, utility-to-utility DB-only communication documented, embedding model name normalized, DB access table updated to show both SDK layers, cross-references between Embedding Pipeline and RAG Context Assembly, flow-as-tool automation context clarified.
+**v1.3.2 (Feb 17, 2026):** Resolved 4 open questions. MCP servers are bundled (developers ship integrations, users connect) — replaced 7-step install state machine with 6-step connection flow. App Gallery: no hosted gallery for v0.1, zip upload + local render. Bundle ID: no rename, keep coworkai. MCP install registry: N/A (bundled servers, no user installation). Open questions reduced from 9 to 5.
