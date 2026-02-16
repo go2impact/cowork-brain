@@ -1,10 +1,10 @@
-# Desktop Salvage Plan: coworkai-desktop → Cowork.ai Sidecar
+# Desktop Salvage Plan: coworkai → Cowork.ai Sidecar
 
 | | |
 |---|---|
 | **Status** | Decision |
 | **Last Updated** | 2026-02-16 |
-| **Decision** | **Fork and gut `coworkai-desktop`. Replace custom native addons. Archive legacy repos.** |
+| **Decision** | **Gut all four repos in place. Keep packaging, capture addons, and capture orchestration. Kill tracking-specific code.** |
 | **Related** | [DESKTOP_FRAMEWORK_DECISION.md](./DESKTOP_FRAMEWORK_DECISION.md), [product-features.md](../product/product-features.md) |
 | **Inputs** | Salvage plans from Gemini CLI, Codex, and Claude Opus — synthesized below |
 
@@ -41,92 +41,108 @@ This is not an incremental upgrade. The product direction reverses:
 
 ## Consensus Decisions
 
-### 1. Fork `coworkai-desktop` as new project base
+### 1. Gut `coworkai-desktop` in place
 
-**All three plans agree:** The Electron packaging, signing, and distribution infrastructure is the highest-value salvage. It represents weeks of zero-user-facing-value work if rebuilt from scratch.
+There is no old product to maintain separately. We continue in the existing repo — no fork needed. CI/CD pipelines, signing certificates, bundle ID, team access, and git history all carry over.
 
-**What we keep directly:**
+**What we keep:**
 
-| Component | Notes |
-|---|---|
-| Electron Forge config (`forge.config.ts`) | Plugins, makers, full packaging pipeline |
-| macOS code signing | osxSign, osxNotarize, hardened runtime, Apple ID/Team ID setup |
-| Windows code signing | Azure Trusted Signing integration |
-| S3 publisher | Profile-based key structure |
-| Auto-updater | `update-electron-app` with platform-specific manifest URLs |
-| Environment profiles | local, alpha, beta, production |
-| ASAR unpacking for native modules | `AutoUnpackNativesPlugin` |
-| React + Vite + Tailwind setup | Renderer tooling carries over as starting point |
+| What | Source | Why | Action |
+|---|---|---|---|
+| Electron Forge config | `forge.config.ts` | Packaging pipeline is weeks of work to rebuild. Plugins, makers, platform targets all configured. | Update `rebuildConfig`: remove `coworkai-video-capture`, `coworkai-audio-capture`, `clipboard-capture`. Keep `better-sqlite3`, `coworkai-activity-capture`, `coworkai-keystroke-capture`. |
+| macOS code signing | `forge.config.ts` (osxSign, osxNotarize) | Hardened runtime + notarization required for macOS distribution. Already configured with Apple ID/Team ID. | No changes. |
+| Windows code signing | `forge.config.ts` (windowsSign) | Required for Windows distribution. Azure Trusted Signing already integrated. | No changes. |
+| S3 publisher | `forge.config.ts` (publisher-s3) | Distribution infrastructure. Profile-based key structure handles alpha/beta/production channels. | No changes. |
+| Auto-updater | `src/app/main/modules/updater/` | Users need OTA updates. `update-electron-app` with platform-specific manifest URLs already works. | No changes. |
+| Environment profiles | `.env.*`, `utils/forge-args.ts` | Multi-environment deployment (local/alpha/beta/production) carries over to sidecar. | Remove employer-specific env vars (auth URLs, API endpoints). Keep `FORGE_PROFILE` mechanism. |
+| ASAR unpacking | `AutoUnpackNativesPlugin` | Native `.node` files can't load from ASAR archives. Already configured. | No changes. |
+| Native resolution logic | Dev: `node_modules`. Packaged: `asar-unpacked`. | Native addons need different resolution paths in dev vs packaged. Already solved. | No changes. |
+| Main process entry | `src/main.ts` | Electron lifecycle init, tray, IPC setup are foundational. The wiring is reusable even though what it wires changes. | Refactor: remove `coworkaiAgent.sync.start()`, Sentry (replace later). Keep lifecycle + tray + IPC init. |
+| DB path config | `configs/database.ts`, `src/app/main/config.ts` | `app.getPath('userData')` path resolution is the correct local storage pattern. Same pattern needed for sidecar. | No changes. |
+| React + Vite + Tailwind | Build tooling | Renderer build pipeline (bundler, CSS framework) is reusable. Only the UI components change. | No changes. |
 
 **What we gut:**
 
-- All tracker IPC channels (`TRACKER/START`, `TRACKER/STOP`)
-- Auth flow tied to employer service
-- Sync pipeline (stub anyway — eliminated entirely for local-first)
-- Timer module (product explicitly says "not a time tracker")
-- Renderer UI (complete rewrite for sidecar: Chat, Apps, MCP Browser, Automations, Context)
-
-**Why fork, not greenfield (Codex's alternative):** Forking preserves the packaging bootstrap. A fully new repo means re-implementing Forge config, signing, S3 publishing, and updater from scratch. The contamination risk Codex raises is mitigated by gutting internals immediately.
-
-**Why fork, not evolve-in-place (Gemini's approach):** In-place evolution risks carrying legacy patterns. A fork creates a clean git history with an intentional starting point.
-
-### 2. Replace custom native addons with open-source equivalents
-
-**Gemini dissented here (keep 100%).** Codex was neutral (keep/integrate). **Opus argued for replacement.** We go with Opus.
-
-#### Keystroke capture: `coworkai-keystroke-capture` → `uiohook-napi`
-
-Both call the exact same OS APIs:
-
-| | Custom addon | uiohook-napi |
+| What | Source | Why |
 |---|---|---|
-| macOS hook | `CGEventTap` + dedicated `CFRunLoop` thread | `CGEventTap` + `CFRunLoop` thread (via libuiohook) |
-| Windows hook | `SetWindowsHookExW` + message pump | `SetWindowsHookExW` + message pump (via libuiohook) |
-| Node.js bridge | Hand-rolled `Napi::ThreadSafeFunction` | `ThreadSafeFunction` (same pattern) |
-| Cross-platform | macOS + Windows | macOS + Windows + Linux |
-| Maintenance | Us (prebuild scripts, per-platform CI, Electron ABI rebuilds) | Community + libuiohook maintainers |
+| Tracker IPC | `src/app/main/ipc/tracker/index.ts`, `TRACKER/START`, `TRACKER/STOP` channels | Employer tracking concept. Replace with new capture IPC. |
+| Auth IPC | `src/app/main/ipc/auth/index.ts`, `AUTH/SET_USER` channel | Employer auth. Local-first has no employer identity. |
+| Timer IPC | `TIMER` channel | "Not a time tracker." |
+| Sync config | `src/app/main/coworkai-agent/configs/sync.ts` | Employer cloud sync. Stub anyway. |
+| Media capture configs | `configs/agent/screencapture.ts`, `configs/agent/audio.ts`, `configs/agent/video.ts` | Not in v0.1 scope. |
+| Timer config | `configs/agent/timer.ts` | "Not a time tracker." |
+| Entire renderer | `src/app/renderer/` (all views, components) | Complete rewrite for sidecar product surface. |
+| IPC channel definitions | `channel.ts` — `AUTH`, `TRACKER`, `TIMER`, `SETUP` channels | Replace with new typed IPC contract for sidecar. |
 
-The custom addon adds zero unique capability. Same syscalls, different wrapper. Dropping it eliminates the `coworkai-keystroke-capture` repo and its prebuild/CI infrastructure.
+### 2. Keep custom native addons — move to utility process
 
-#### Activity capture: `coworkai-activity-capture` → `active-win` + AppleScript wrapper
+**Original decision was to replace with open-source equivalents (Opus's recommendation). Reversed after deep research.** See [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](./NATIVE_ADDON_REPLACEMENT_RESEARCH.md) for the full analysis.
 
-Two sub-problems:
+**Gemini was right.** The original Opus analysis compared syscalls but not capabilities. Deep research found critical gaps in both proposed replacements:
 
-**Window detection:** The custom addon's 3-tier fallback (`NSWorkspace` → `runningApplications` → `CGWindowList`) was built for employer monitoring where missing a single window switch affects reporting accuracy. For AI context, an occasional miss is invisible. `active-win` calls `NSWorkspace` (the primary path) and handles the common case.
+#### Keystroke capture: keep `coworkai-keystroke-capture`
 
-**Browser URL extraction:** The custom addon's AppleScript-primary + Accessibility-fallback approach has genuine value. However:
+| Capability | Custom addon | uiohook-napi |
+|---|---|---|
+| Character mapping | Full UTF-8 via `CGEventKeyboardGetUnicodeString` / `ToUnicodeEx` | **Keycodes only** — no character/glyph mapping |
+| Key repeat detection | OS-provided (macOS) + atomic tracking (Windows) | **None** — held keys generate identical streams |
+| CapsLock state | Exposed as boolean in every event | **Not exposed** |
+| Electron safety | Graceful permission handling, event tap auto-recovery | **Deadlock** in Electron (issue #23, unresolved) |
+| Maintenance | Active | **Dormant** — last release March 2024, single maintainer |
 
-1. v0.1 is Mac-only — the entire Windows COM UI Automation implementation is irrelevant.
-2. On macOS, plain `child_process.execFile('osascript', ...)` gives the same primary path without a native addon.
-3. During MCP Browser sessions, Playwright already knows the URL — activity capture URL extraction only matters for the user's own browsing.
-4. AppleScript works for all major macOS browsers (Safari, Chrome, Firefox, Arc, Brave, Edge) without Accessibility permissions.
+The Electron deadlock alone is a showstopper. uiohook-napi calls `dispatch_sync_f` to the main dispatch queue for Unicode key lookup, which deadlocks because Electron's main thread is blocked in Node.js's event loop.
 
-**If AppleScript proves unreliable in practice, add the Accessibility fallback later as a focused module.** Don't carry that complexity from day one.
+#### Activity capture: keep `coworkai-activity-capture`
 
-**Why we disagree with Gemini:** "Battle-tested" doesn't hold when the replacement calls the same APIs. The custom addons are wrappers around identical OS syscalls. Keeping them means maintaining two repos, their prebuild infrastructure, and per-platform CI for zero unique capability.
+| Capability | Custom addon | get-windows (formerly active-win) |
+|---|---|---|
+| macOS app detection | 3-tier fallback (NSWorkspace → runningApplications → CGWindowList) | Single method only |
+| Browser URL (macOS) | AppleScript + Accessibility API fallback | AppleScript only, fails silently |
+| Deep Chromium traversal | Recursive DFS through Accessibility tree for `AXWebArea` | **None** |
+| Browser URL (Windows) | Full COM UI Automation with 28 localized address bar names | **Not supported** |
+| Firefox support | Supported on all platforms | **Not supported** |
+| Architecture | In-process N-API addon, sub-millisecond | Spawns Swift CLI as child process |
+| Electron integration | Purpose-built, rebuilt against Electron ABI | Known permission inheritance issues |
 
-#### New capture layer structure
+The "no Windows URL extraction" gap would require building a separate solution for v0.2. The child process spawn architecture creates permission inheritance problems in signed Electron apps.
+
+#### Capture layer structure
 
 ```
 src/core/capture/
-├── input.ts            ← uiohook-napi wrapper (keystroke + mouse events)
-├── window.ts           ← active-win wrapper (active app, window title)
-└── browser-url.ts      ← AppleScript via child_process (~50 lines)
+├── input.ts            ← coworkai-keystroke-capture wrapper (keystroke + mouse events)
+├── window.ts           ← coworkai-activity-capture wrapper (active app, window title, browser URL)
+└── types.ts            ← Shared capture event types
 ```
 
-Replaces two entire repos and their prebuild/CI infrastructure.
+Wraps existing addons in the capture utility process. Addons are rebuilt against Electron ABI via `forge.config.ts` and unpacked from ASAR.
 
-### 3. Archive `coworkai-agent` — no salvage
+### 3. Gut `coworkai-agent` — keep capture orchestration, kill tracking
 
-**Gemini wanted to salvage the SQLite schema and timer module. Codex suggested keeping as source/fork. Opus said archive entirely.** We go with Opus.
+The agent is the orchestrator that sits between `coworkai-desktop` and the native addons. It manages the capture lifecycle, buffers events, and flushes to SQLite. That orchestration is reusable.
 
-**Why no salvage:**
+**What we keep:**
 
-1. The agent is a tracking engine. Mastra.ai replaces its purpose entirely — there is no evolutionary path from "capture → sync to employer cloud" to "capture → local memory → AI acts on your behalf."
-2. The timer module contradicts product positioning. The product is explicitly "not a time tracker." Keeping midnight-split aggregation logic imports the wrong mental model.
-3. The SQLite schema (`activities`, `keystrokes`, `clipboards`) was designed for tracking. The new schema needs context/memory tables, embedding storage (sqlite-vec), and a fundamentally different data model oriented around AI retrieval, not employer reporting.
+| What | Source | Why | Action |
+|---|---|---|---|
+| Agent lifecycle | `src/main.ts` | `init(config)` + `better-sqlite3` WAL setup is the correct pattern for high-frequency writes. Proven in production. | Refactor: remove `sync.start()` call. Keep WAL pragmas. |
+| Feature flags | `src/config.ts` | Config-driven capture toggling lets us enable/disable capture streams without code changes. Needed for user privacy controls. | Remove `timer`, `screen`, `audio`, `video` flags. Keep `activity`, `keyboard`, `clipboard`. |
+| Activity orchestration | `src/agent/activity/index.ts`, `src/agent/activity/lib/x-win.ts` | `subscribeActiveWindow()` + browser enrichment is the core capture loop. Rebuilding this means re-solving window change detection, title/URL extraction, and addon coordination. | No changes to orchestration logic. New schema underneath. |
+| Activity buffer management | `src/database/activity/manager.ts` | Bounded 5-buffer queue with `autoFlushIfNeeded()` prevents unbounded memory growth during rapid window switching. This pattern is correct for sidecar too. | Refactor: point at new table schema. Keep buffer/flush logic. |
+| Keystroke chunking | `src/database/keystroke/buffer.ts` | Debounce-driven flushing + special-key triggers + 1000-char activity flush are tuned for real-world typing patterns. Rebuilding means re-discovering these thresholds. | Refactor: point at new table schema. Keep chunking logic. |
+| Keyboard + clipboard | `src/agent/keyboard/index.ts`, `src/database/clipboard/buffer.ts` | Copy/cut/paste hotkey detection in the keystroke stream is how clipboard capture works without polling. `readClipboard()` on hotkey is more efficient than polling. | Refactor: point at new table schema. Keep detection logic. |
 
-**What has reference value:** The AppleScript commands and browser-specific queries in the capture repos are useful reference for edge case handling. Archive as read-only, not deleted.
+**What we kill:**
+
+| What | Source | Why |
+|---|---|---|
+| Timer module | `src/agent/timer/index.ts` | Midnight splitting, daily aggregation, session tracking. "Not a time tracker." |
+| TimeLog buffer | `src/database/timelog/buffer.ts` | `timelogs` table. Part of timer. |
+| SyncManager | `src/database/index.ts` (SyncManager wiring) | Employer cloud sync scheduling. Remove, keep DB init. |
+| SyncQueue | `src/database/sync/sync.ts` | Batch sync, retry logic, `sync` flag columns. All employer sync. |
+| Media modules | Screen, audio, video agent modules | Not in v0.1 scope. |
+| Employer identity | `agent.setUserId(user.id)` pattern | Employer-scoped `user_id` isolation. Local-first has no employer identity. |
+| SQLite schema | `activities`, `keystrokes`, `clipboards`, `timelogs` tables | Replace with new context/memory/embeddings schema. Keep `better-sqlite3` WAL patterns and buffer flush approach. |
 
 ### 4. New SQLite schema for context/memory/embeddings
 
@@ -144,7 +160,7 @@ Replaces two entire repos and their prebuild/CI infrastructure.
 | Process | Role |
 |---|---|
 | **Main Process** | Lifecycle, IPC routing, system tray. No heavy work. |
-| **Capture Utility Process** | `uiohook-napi`, `active-win`, AppleScript URL extraction. Crash-isolated, auto-restarts. |
+| **Capture Utility Process** | `coworkai-keystroke-capture`, `coworkai-activity-capture`. Crash-isolated, auto-restarts. |
 | **Agents & RAG Utility Process** | Mastra.ai, embeddings, vector store, MCP runtime. Isolated from UI. |
 | **Playwright Child Process** | Browser automation. Fully isolated from app. |
 | **Renderer** | Sandboxed (`contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`). |
@@ -178,7 +194,7 @@ Three independent analyses disagreed on three points. The resolutions:
 
 | Conflict | Gemini | Codex | Opus | Resolution |
 |---|---|---|---|---|
-| **Custom native addons** | Keep 100% ("battle-tested") | Keep / integrate | Replace with `uiohook-napi` + `active-win` | **Replace.** Same OS syscalls, less maintenance. See decision #2. |
+| **Custom native addons** | Keep 100% ("battle-tested") | Keep / integrate | Replace with `uiohook-napi` + `active-win` | **Keep.** Deep research found critical capability gaps in replacements. Gemini was right. See [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](./NATIVE_ADDON_REPLACEMENT_RESEARCH.md). |
 | **Timer module** | Keep midnight-split logic | Not addressed | Eliminate ("not a time tracker") | **Eliminate.** Contradicts product positioning. See decision #8. |
 | **Tracker SQLite schema** | Keep `activities`, `keystrokes`, `clipboards` tables | Normalize to new event schema | New schema entirely | **New schema.** Designed for AI retrieval, not employer reporting. See decision #4. |
 
@@ -188,10 +204,10 @@ Three independent analyses disagreed on three points. The resolutions:
 
 | Repo | Action | Reasoning |
 |---|---|---|
-| `coworkai-desktop` | **Fork as new project base** | Packaging, signing, publishing, updater infrastructure is valuable. Gut internals. |
-| `coworkai-agent` | **Archive (read-only)** | Tracking engine with no evolutionary path to AI agent orchestrator. Mastra.ai replaces entirely. |
-| `coworkai-activity-capture` | **Archive (read-only)** | AppleScript commands have reference value. Addon replaced by `active-win` + thin wrapper. |
-| `coworkai-keystroke-capture` | **Archive (read-only)** | Same underlying APIs as `uiohook-napi`. No reason to maintain custom implementation. |
+| `coworkai-desktop` | **Gut in place** | Packaging, signing, publishing, updater infrastructure is valuable. Kill tracker IPC, auth, sync, timer, renderer. No fork needed — there is no old product to maintain. |
+| `coworkai-agent` | **Gut in place** | Keep capture orchestration (activity buffers, keystroke chunking, clipboard capture, SQLite persistence). Kill timer, sync, media, employer auth. |
+| `coworkai-activity-capture` | **Keep as-is** | 3-tier detection, Accessibility fallback, deep Chromium traversal, full Windows UI Automation. No viable replacement. |
+| `coworkai-keystroke-capture` | **Keep as-is** | UTF-8 character mapping, repeat detection, CapsLock state, Electron-safe threading. No viable replacement. |
 
 ---
 
@@ -201,12 +217,12 @@ Three independent analyses disagreed on three points. The resolutions:
 |---|---|---|
 | Mastra.ai | Agent orchestration | Utility process (agents & RAG) |
 | Playwright | Browser automation (MCP Browser) | Child process |
-| uiohook-napi | Global keystroke + mouse capture | Utility process (capture) |
-| active-win | Active window detection | Utility process (capture) |
 | Ollama client | Local LLM (DeepSeek-R1-8B) + embeddings (Qwen3-Embedding-0.6B) | Utility process (agents & RAG) |
 | sqlite-vec | Vector store for RAG | Utility process (agents & RAG) |
 | MCP SDK | Connect to Zendesk, Gmail, Slack, etc. | Utility process (agents & RAG) |
 | OpenRouter client | Cloud inference gateway | Utility process (agents & RAG) |
+
+Existing dependencies carried over: `better-sqlite3`, `coworkai-keystroke-capture`, `coworkai-activity-capture`.
 
 ---
 
@@ -219,7 +235,7 @@ src/
 ├── core/                       # Pure TypeScript — no Electron dependency
 │   ├── agents/                 # Mastra.ai agent definitions + orchestration
 │   ├── automations/            # Rule/workflow engine
-│   ├── capture/                # uiohook-napi, active-win, browser URL extraction
+│   ├── capture/                # coworkai-keystroke-capture, coworkai-activity-capture wrappers
 │   ├── chat/                   # Chat logic (on-demand + proactive)
 │   ├── mcp/                    # MCP server connections + tool registry
 │   ├── memory/                 # Embedding, vector store, RAG pipeline
@@ -248,10 +264,10 @@ src/
 
 ### Phase 1: Core Runtime Foundation
 
-- Fork `coworkai-desktop`, gut internals
+- Gut `coworkai-desktop` and `coworkai-agent` in place
 - Create target folder architecture (`core/`, `electron/`, `renderer/`, `shared/`)
 - Define typed IPC contract and process boundaries
-- Stand up capture utility process using `uiohook-napi` + `active-win` + AppleScript
+- Stand up capture utility process with `coworkai-keystroke-capture` + `coworkai-activity-capture`
 - Move main process to coordinator-only role
 - Integrate `sqlite-vec` into local database with new schema
 
@@ -292,20 +308,24 @@ src/
 | Trying to evolve legacy renderer in place | Slow velocity, regressions | Greenfield UI architecture |
 | Scope creep across six features | Delayed delivery | Phase by capability layer, not by feature count |
 | Data/privacy mismatch | Product trust risk | Ship privacy boundaries and retention controls early |
-| AppleScript URL extraction unreliable | Missing browser context | Add Accessibility fallback as focused module if needed |
+| Custom addon maintenance burden | Two extra repos + prebuild CI | Cost of maintenance < cost of rebuilding capabilities. Addons are battle-tested. |
 
 ---
 
 ## Open Questions
 
-1. **Bundle ID continuity** — Do we want the new product to share the existing app's bundle ID (for update continuity) or start fresh (clean break)?
-2. **Electron version** — Existing uses Electron 37.1.0. Confirm target version for the new project.
-3. **Native module rebuild list** — Existing `forge.config.ts` rebuilds 6 native modules. New list is shorter (`better-sqlite3`, `uiohook-napi`). Confirm no others needed.
+1. **Bundle ID rename** — Existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar?
+2. **Electron version** — Existing uses Electron 37.1.0. Confirm target version.
+3. **Native module rebuild list** — Existing `forge.config.ts` rebuilds 6 native modules (includes video, audio, clipboard captures being killed). Trim to: `better-sqlite3`, `coworkai-keystroke-capture`, `coworkai-activity-capture`. Confirm no others needed.
 4. **MCP server packaging** — Bundled with the app, installed on demand, or running remotely?
 5. **App Gallery hosting** — Where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service?
 
 ---
 
 ## Changelog
+
+**v3 (Feb 16, 2026):** Replaced fork-and-gut with gut-in-place for all repos. No old product to maintain — forking adds complexity for zero benefit. Reversed decision #3 — keep `coworkai-agent` active, gut tracking-specific code, retain capture orchestration (activity buffers, keystroke chunking, SQLite persistence). Added file-level specificity to decisions #1 and #3 (exact source files to keep vs gut). Updated repo disposition, dependencies, execution phases, and open questions.
+
+**v2 (Feb 16, 2026):** Reversed decision #2 — keep custom native addons instead of replacing with open-source equivalents. Deep research found critical capability gaps in uiohook-napi (no character mapping, Electron deadlock) and get-windows (no Windows URLs, no fallback strategy). Updated repo disposition, dependencies, directory structure, and execution phases. See [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](./NATIVE_ADDON_REPLACEMENT_RESEARCH.md).
 
 **v1 (Feb 16, 2026):** Initial decision. Synthesized from three independent salvage analyses (Gemini CLI, Codex, Claude Opus). Fork-and-gut strategy, native addon replacement, repo disposition, phased execution plan.

@@ -8,6 +8,7 @@
 > | `coworkai-agent` | `/Users/rustancorpuz/code/coworkai-agent` |
 > | `coworkai-activity-capture` | `/Users/rustancorpuz/code/coworkai-activity-capture` |
 > | `coworkai-keystroke-capture` | `/Users/rustancorpuz/code/coworkai-keystroke-capture` |
+> | `coworkai-audio-capture` | `/Users/rustancorpuz/code/document-capture/coworkai-audio-capture` |
 
 ---
 
@@ -23,6 +24,8 @@ The system consists of four primary repositories:
 | `coworkai-agent` | npm Library | `0.1.6` | Core tracking engine, SQLite persistence, and sync management. |
 | `coworkai-activity-capture` | Native Addon | `0.0.5` | Native active-window and browser URL detection. |
 | `coworkai-keystroke-capture` | Native Addon | `0.0.8` | Native system-wide keyboard and mouse event capture. |
+| `coworkai-audio-capture` | Native Addon | `1.2.5` | Native audio recording with LAME MP3 encoding. |
+| `coworkai-video-capture` | Native Addon | `0.0.10` | Screen video recording with FFmpeg encoding (external npm package, no local source). |
 
 ---
 
@@ -151,6 +154,72 @@ The `Timer` class tracks work session duration with support for daily boundaries
 * **Historical Retrieval**: `refreshTimeLogs()` fetches 4 weeks of time log records (from the start of the week 4 weeks ago to today, in UTC) and delivers them to the host via the `onSetup` callback, enabling the desktop UI to render historical charts.
 * **Flush-on-Stop**: `stop()` clears the interval timer, writes the final `end` timestamp, and calls `flushTimeLogQueue(true)` to force-write all buffered logs to SQLite immediately.
 
+### Screen Capture Module
+
+**Source:** `coworkai-agent/src/agent/screencapture/index.ts`
+
+**Status:** Fully implemented, cross-platform (no native addon required).
+
+The screen capture module periodically captures screenshots of all connected displays using Electron's built-in `desktopCapturer` API.
+
+* **Capture Mechanism**: Calls `desktopCapturer.getSources({ types: ['screen'], thumbnailSize })` at a configurable interval (default 60 seconds). Each source's `thumbnail` (an Electron `NativeImage`) is converted to JPEG (quality 80%) or PNG.
+* **Storage**: Files are written to `outputDir/{userId}/{Display_name}_{timestamp}.jpg`. Organized by user ID and date.
+* **Sync**: `startSync()` / `stopSync()` periodically poll user folders, batch files (default batch size 10), and call the `onSyncFetch` callback. The desktop app's callback is currently a `console.log` stub.
+* **Platform Notes**: No platform-specific native code — Electron's `desktopCapturer` abstracts over Direct3D/GDI+ on Windows and ScreenCaptureKit/CGWindow on macOS internally.
+
+### Audio Capture Module
+
+**Source:** `coworkai-agent/src/agent/audio/index.ts`
+
+**Status:** Fully implemented on both macOS and Windows via native addon.
+
+The audio capture module records system audio continuously as MP3 files, chunked into 5-minute segments.
+
+* **Native Addon**: `@engineering-go2/coworkai-audio-capture` v1.2.5 (source at `/Users/rustancorpuz/code/document-capture/coworkai-audio-capture`).
+* **Audio Format**: 16kHz mono MP3 via statically-linked LAME encoder.
+* **Storage**: Files flow from `outputDir/{userId}/temp/` (during recording) → `{userId}/processed/` (after completion). Named `Recording_{timestamp}.mp3`.
+* **Chunking**: A timer automatically stops and restarts recording after 5 minutes to prevent overly long files.
+* **Sync**: Polls for processed files every 5 seconds, batch size 1 file per cycle, calls `onSyncFetch` callback (currently stubbed).
+* **Native Module API**: `startRecording(outDir, filename, sampleRate, channels, format, maxDuration)`, `stopRecording()`, `checkPermission()`, `requestPermission()`, `setLogger()`.
+
+**macOS Implementation (Objective-C++)**
+
+* **Source**: `coworkai-audio-capture/src/mac/native/audio_capture.mm`
+* **Frameworks**: `AudioToolbox`, `CoreAudio`, `AVFoundation`.
+* **Permission**: Uses AVFoundation API (`AVCaptureSession`) for microphone permission management. macOS requires explicit user consent via System Preferences → Privacy & Security → Microphone.
+
+**Windows Implementation (C++)**
+
+* **Source**: `coworkai-audio-capture/src/win/native/audio_capture.cpp`
+* **API**: Windows Multimedia `waveIn*` functions (`waveInOpen`, `waveInStart`, `waveInAddBuffer`). Uses `WAVE_MAPPER` device with `WAVEHDR` double-buffering.
+* **Encoding**: LAME MP3 library statically linked (`libmp3lame-static.lib`, x64 only). Configured for stereo/64kbps VBR (voice quality).
+* **Permissions**: Returns `true` unconditionally — Windows does not require explicit microphone permission grants like macOS.
+* **Build**: Linked against `winmm.lib` (Windows Multimedia). MSVC with C++17, x64 only.
+
+### Video Capture Module
+
+**Source:** `coworkai-agent/src/agent/video/index.ts`
+
+**Status:** Fully implemented via external native addon. Source code is not in any local repository.
+
+The video capture module records screen video continuously as MP4 files, chunked into 5-minute segments.
+
+* **Native Addon**: `@engineering-go2/coworkai-video-capture` v0.0.10 (published to npm registry; no local source available).
+* **Encoding**: FFmpeg (bundled binary at `@engineering-go2/coworkai-video-capture/bin/ffmpeg`). Output format: MP4.
+* **Storage**: Files flow from `outputDir/{userId}/temp/` → `{userId}/pending/` → `{userId}/processed/`. Named `Screen_1_{timestamp}.mp4` (display number included).
+* **Chunking**: Timer automatically restarts recording after 5 minutes.
+* **Sync**: Polls for processed files every 5 seconds, batch size 1 file per cycle, calls `onSyncFetch` callback (currently stubbed).
+* **Native Module API**: `init()`, `start()`, `stop()`, `requestPermission()`, `checkPermission()`, `cleanup()`, `setConfig()`.
+
+**macOS Implementation**
+
+* **Screen Capture**: AVFoundation APIs for screen recording.
+* **Permission**: Requires macOS Screen Recording permission (System Settings → Privacy & Security → Screen Recording). Native module calls `requestPermission()` to trigger the system dialog; capture fails gracefully if denied.
+
+**Windows Implementation**
+
+* **Status**: Unknown. The native addon source (`@engineering-go2/coworkai-video-capture`) is not present in any local repository — it is only available as a published npm package. Whether a real Windows implementation exists or only macOS is supported cannot be confirmed from local sources.
+
 ### coworkai-activity-capture (Native)
 
 **Purpose:** OS-level active window detection and browser URL extraction.
@@ -244,6 +313,18 @@ The following behaviors reflect the current codebase state (v1.0.13):
 3. **Timelog Sync**: The `timelogs` table is not included in the `SyncManager`'s scheduled sync cycles.
 4. **Media Sync**: Audio/Video sync callbacks currently only log to the console; there is no remote upload implementation.
 5. **Backoff Logic**: The `getRetryCount()` method in `SyncQueue` (`coworkai-agent/src/database/sync/sync.ts:279-283`) always returns `0`, so the backoff formula `baseDelay * Math.pow(2, retryCount)` evaluates to `5000 * Math.pow(2, 0) = 5000ms` on every retry — effectively a fixed 5-second delay instead of exponential backoff.
+
+### Windows Platform Coverage
+
+All native modules target **x64 only** (no x86 or ARM). Build toolchain: `node-gyp` with MSVC, C++17.
+
+| Module | Windows Status | API / Libraries |
+| --- | --- | --- |
+| Activity capture | Fully implemented | `GetForegroundWindow`, PSAPI, COM UI Automation (`user32`, `ole32`, `oleaut32`, `uiautomationcore`, `psapi`) |
+| Keystroke capture | Fully implemented | `SetWindowsHookEx` (`WH_KEYBOARD_LL` / `WH_MOUSE_LL`), `ToUnicodeEx` (`user32`, `imm32`) |
+| Audio capture | Fully implemented | `waveIn*` (Windows Multimedia), LAME static lib (`winmm`, `libmp3lame-static.lib`) |
+| Screen capture | Cross-platform via Electron | `desktopCapturer` (Electron abstracts Direct3D/GDI+) |
+| Video capture | Unknown | Native addon source not in local repos (npm package only) |
 
 ### Failure Modes & Resilience
 
@@ -339,3 +420,10 @@ The profile determines the env file loaded at build time and the S3 key prefix u
 | Windows low-level hooks, message pump, repeat filtering, character mapping | `coworkai-keystroke-capture/src/win/keystroke_capture.cpp` | `HookThread()`, `LowLevelKeyboardProc()`, `LowLevelMouseProc()`, `GetCharsFromVk()` |
 | Native prebuild strategy and artifact upload scripts | `coworkai-activity-capture/scripts/prebuild-platform.js`, `coworkai-activity-capture/scripts/prebuild-upload.js`, `coworkai-keystroke-capture/scripts/prebuild-platform.js`, `coworkai-keystroke-capture/scripts/prebuild-upload.js` | Script entrypoints: `execSync(prebuild ...)`, `execSync(prebuild --upload-all ...)` |
 | Electron packaging, native rebuild list, S3 publishing, updater base URLs | `coworkai-desktop/forge.config.ts`, `coworkai-desktop/src/app/main/modules/updater/index.ts` | `getUpdaterBaseUrl()` (forge + updater), publisher `keyResolver()`, `checkForUpdates()` |
+| Screen capture via Electron desktopCapturer, JPEG/PNG output, 60s interval | `coworkai-agent/src/agent/screencapture/index.ts` | `captureAllDisplays()`, `startSync()`, `stopSync()` |
+| Audio capture lifecycle, 5-min chunking, temp→processed file flow | `coworkai-agent/src/agent/audio/index.ts` | `start()`, `stop()`, `startSync()` |
+| Audio native addon macOS implementation (AudioToolbox + CoreAudio + AVFoundation) | `document-capture/coworkai-audio-capture/src/mac/native/audio_capture.mm` | `startRecording()`, `stopRecording()`, `checkPermission()` |
+| Audio native addon Windows implementation (waveIn + LAME MP3) | `document-capture/coworkai-audio-capture/src/win/native/audio_capture.cpp` | `waveInOpen()`, `lame_encode_buffer()` |
+| Audio native addon build config (macOS + Windows targets, LAME static lib) | `document-capture/coworkai-audio-capture/binding.gyp` | Target definitions for `OS=='mac'` and `OS=='win'` |
+| Video capture lifecycle, 5-min chunking, temp→pending→processed file flow | `coworkai-agent/src/agent/video/index.ts` | `start()`, `stop()`, `startSync()` |
+| Video native addon is external npm package (no local source) | `coworkai-agent/package.json` | `@engineering-go2/coworkai-video-capture: ^0.0.11` |

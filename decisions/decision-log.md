@@ -198,7 +198,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **From → To:** Native Swift/AppKit prototype → Electron with multi-process architecture (utility processes for capture and agents, sandboxed renderer).
 
 **Why:**
-1. Every major dependency (Playwright, Mastra.ai, RAG pipeline, uiohook-napi, active-win) is a Node.js library. Both Swift and Tauri would require running 100% of business logic in a Node.js sidecar — the native layer would only manage windows and system tray.
+1. Every major dependency (Playwright, Mastra.ai, RAG pipeline, custom N-API capture addons) is a Node.js library or N-API module. Both Swift and Tauri would require running 100% of business logic in a Node.js sidecar — the native layer would only manage windows and system tray.
 2. Swift has no ecosystem for agent orchestration, browser automation, or RAG. Choosing Swift means rebuilding infrastructure that already exists in TypeScript.
 3. Global input capture (CGEvent taps) requires the same Accessibility permission regardless of runtime. No native advantage.
 4. The UI (dashboards, data tables, config panels, activity timelines) is exactly where web technologies excel. Even a Swift app would embed WKWebView for these, creating two rendering paradigms.
@@ -242,30 +242,30 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
-## 2026-02-16 — Desktop salvage strategy: fork and gut coworkai-desktop
+## 2026-02-16 — Desktop salvage strategy: gut all repos in place
 
-**Changed:** Established the migration strategy for moving from the existing `coworkai` monitoring platform to Cowork.ai Sidecar. Three independent analyses (Gemini CLI, Codex, Claude Opus) were synthesized into a single consensus plan.
+**Changed:** Established the migration strategy for moving from the existing `coworkai` monitoring platform to Cowork.ai Sidecar. Three independent analyses (Gemini CLI, Codex, Claude Opus) were synthesized, then revised based on deep research into native addon replacements and the agent orchestration layer.
 
 **From → To:**
-- Four active repos (`coworkai-desktop`, `coworkai-agent`, `coworkai-activity-capture`, `coworkai-keystroke-capture`) → Fork `coworkai-desktop` as new project base, archive the other three
-- Custom C++ native addons for capture → `uiohook-napi` + `active-win` + thin AppleScript wrapper (open-source equivalents that call the same OS APIs)
+- Four active repos (`coworkai-desktop`, `coworkai-agent`, `coworkai-activity-capture`, `coworkai-keystroke-capture`) → Gut `coworkai-desktop` and `coworkai-agent` in place, keep capture addon repos as-is
+- Custom C++ native addons for capture → **Keep both** (deep research found open-source replacements have critical capability gaps — see [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](NATIVE_ADDON_REPLACEMENT_RESEARCH.md))
+- `coworkai-agent` tracking engine → Keep capture orchestration (activity buffers, keystroke chunking, SQLite persistence), kill timer/sync/media/employer auth. Mastra.ai handles AI agent orchestration separately.
 - Tracking-oriented SQLite schema → New schema designed for context/memory/embeddings with `sqlite-vec`
 - Single-process main architecture → Multi-process isolation (capture utility, agents/RAG utility, Playwright child, sandboxed renderer)
-- `coworkai-agent` tracking engine → Mastra.ai agent orchestration (no salvage)
 
 **Why:**
-1. The packaging/signing/distribution infrastructure in `coworkai-desktop` represents weeks of work with zero user-facing value if rebuilt. Forking preserves it while gutting the monitoring-specific internals.
-2. Custom native addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`) call the same OS syscalls (`CGEventTap`, `SetWindowsHookExW`, `NSWorkspace`) as `uiohook-napi` and `active-win`. The custom code's 3-tier fallback robustness was built for employer monitoring accuracy — overkill for fuzzy AI context. Replacing them eliminates two repos and their prebuild/CI infrastructure.
-3. `coworkai-agent` is a tracking engine with no evolutionary path to an AI agent orchestrator. The timer module contradicts the product positioning ("not a time tracker"). The SQLite schema was designed for employer reporting, not AI retrieval. Archive, don't salvage.
-4. Three independent analyses converged on the same core decisions, differing mainly on native addon strategy (Gemini wanted to keep, Opus argued for replacement based on syscall-level comparison).
+1. There is no old product to maintain separately. Forking adds complexity (new repo, new CI, new signing setup) for zero benefit. Gut in place preserves all infrastructure — CI/CD, signing certs, bundle ID, team access, git history.
+2. Custom native addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`) were initially planned for replacement with `uiohook-napi` + `active-win`. **Deep research reversed this:** uiohook-napi lacks character mapping, has an unresolved Electron deadlock bug, and is dormant (last release March 2024). get-windows (formerly active-win) has no Windows URL extraction, no fallback strategy, and spawns child processes. The custom addons have battle-tested capabilities that would need to be rebuilt from scratch.
+3. `coworkai-agent` is more than a tracking engine — it's the capture orchestrator. `ActivityManager`, `KeystrokeBuffer`, clipboard detection, and SQLite flush patterns are reusable. Archiving it means rebuilding that orchestration from scratch. Instead, gut the tracking-specific code (timer, sync, media, employer auth) and keep the capture plumbing.
+4. Three independent analyses converged on the same core decisions, differing mainly on native addon strategy (Gemini wanted to keep, Opus argued for replacement based on syscall-level comparison). Subsequent deep research proved Gemini right.
 
-**Cost impact:** None directly. Reduces long-term maintenance cost by eliminating two native addon repos and their prebuild CI pipelines.
+**Cost impact:** Keeping custom addons and the agent repo means maintaining three repos and their CI. Cost of maintenance is less than cost of rebuilding capabilities (character mapping, 3-tier detection, Accessibility fallback, Windows UI Automation, capture orchestration).
 
 **Alternatives considered:**
-- Evolve in-place (Gemini): Risk of legacy contamination, unclear separation between old and new product shape. Rejected.
-- Fully new repo (Codex): Loses the packaging infrastructure bootstrapping benefit. Forking achieves the same clean separation while keeping the shell. Rejected.
-- Keep custom native addons (Gemini): Same OS APIs as open-source replacements, adds maintenance of two repos and per-platform CI for zero unique capability. Rejected.
-- Salvage `coworkai-agent` SQLite schema and timer (Gemini): Timer contradicts product direction. Schema needs fundamental redesign for embeddings and AI retrieval. Rejected.
+- Fork `coworkai-desktop` (original decision): Adds complexity with no benefit — no old product to maintain, CI/CD would need re-setup. Rejected.
+- Fully new repo (Codex): Loses all infrastructure. Rejected.
+- ~~Replace custom native addons (Opus): Originally accepted as "same OS APIs."~~ **Reversed after deep research.** Open-source replacements have critical gaps (no character mapping, Electron deadlock, no Windows URLs). Gemini was right. Now rejected.
+- ~~Archive `coworkai-agent` (original decision):~~ **Reversed.** The agent contains reusable capture orchestration that would need to be rebuilt. Gut the tracking code, keep the capture plumbing.
 
 **Full writeup:** [`decisions/DESKTOP_SALVAGE_PLAN.md`](DESKTOP_SALVAGE_PLAN.md)
 

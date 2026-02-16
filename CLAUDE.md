@@ -24,6 +24,9 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 
 ## Repo Structure
 
+- `README.md` — Project overview and orientation for newcomers
+- `CONTRIBUTING.md` — Contribution guidelines with decision log entry examples
+- `repos.md` — Map of all Cowork.ai repos (app code lives elsewhere)
 - `product/` — What Cowork.ai is, who it's for, roadmap. **Start here if new.**
   - `product-features.md` — Detailed feature set and capability map across all phases
 - `architecture/` — Engineering specs: models, routing, budgets, hardware (Rustan's reference)
@@ -31,6 +34,8 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 - `design/` — M3 design system, three-state interaction model, prototype brief. **Read before touching any UI code.**
 - `gtm/` — Distribution channels, phased rollout, Go2 asset leverage
 - `decisions/` — **Most important directory.** Full audit trail with reasoning for every significant change
+  - `decision-log.md` — Running log of all decisions (append here)
+  - `DESKTOP_FRAMEWORK_DECISION.md` and similar — Deep-dive decision docs and research references
 - `prototypes/` — Links to UI demos and design concepts
 
 ## Key Technical Context
