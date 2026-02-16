@@ -48,7 +48,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 | 3 | [**Chat**](#3-chat) | Two interaction modes: on-demand conversation (you ask, the AI already knows your context) and proactive notifications (the platform surfaces what matters). Both lead to action. |
 | 4 | [**MCP Browser**](#4-mcp-browser) | Watch the AI work in real time. See every tool call, every browser action, every outcome. Approval gates for sensitive actions. The trust mechanism that enables autonomy. |
 | 5 | [**Automations**](#5-automations) | Rules and workflows that run without intervention. Time-based, event-based, and activity-pattern triggers. Logged and auditable. |
-| 6 | [**Context**](#6-context) | Ambient awareness: six input streams capture what you're working on. The AI remembers your past conversations, preferences, and how you communicate — all on-device. Context Card shows your current state at a glance. |
+| 6 | [**Context**](#6-context) | Ambient awareness: five active input streams in v0.1 capture what you're working on (screen recording is v0.2). The AI remembers your past conversations, preferences, and how you communicate — all on-device. Context Card shows your current state at a glance. |
 
 
 ---
@@ -266,7 +266,7 @@ Context is the AI's ambient awareness — what you're working on, what it rememb
 
 #### What the AI observes
 
-Six input streams provide the AI with work context:
+Five input streams in v0.1 provide the AI with work context. Screen recording is deferred to v0.2:
 
 | Stream | Default | Used for |
 |--------|---------|----------|
@@ -274,12 +274,12 @@ Six input streams provide the AI with work context:
 | **Keystroke & input capture** (raw input → communication patterns) | Off (opt-in) | Communication pattern extraction |
 | **Focus detection** (extended single-app sessions, derived from window tracking) | On | Flow-state detection |
 | **Browser activity** (pages visited, actions taken during agent sessions) | On during sessions | MCP Browser, audit trail |
-| **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
+| **Screen recording** (15fps during coached agent sessions) | Not in v0.1 (v0.2) | Agent coaching (v0.2) |
 | **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
 
 **Data flow:** Raw capture → local SQLite (libsql, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
 
-**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
+**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser session data roll X days. Retention enforcement not yet implemented.
 
 #### What the AI remembers
 
@@ -331,7 +331,7 @@ Cowork.ai observes your work context to be useful. That observation has to be cl
 
 ### What the AI never collects
 
-- **Continuous screen recording** — screen capture is opt-in, agent-session-only, not ambient surveillance.
+- **Continuous screen recording** — not in v0.1. If introduced in v0.2, screen capture remains opt-in, agent-session-only, not ambient surveillance.
 - **Keystroke data for employer reporting** — keystroke capture trains your AI, never reported to anyone else. Never leaves device.
 - **Full page content outside agent sessions** — activity context captures window titles and URLs for work context, not page content or DOM data. General browsing is not indexed.
 - **Idle/active time** — no attendance monitoring. Activity context is for flow-state detection only.
@@ -377,6 +377,7 @@ Getting the positioning right matters. Cowork.ai is not:
 
 | Date | Changes |
 |------|---------|
+| 2026-02-17 | Clarified Context scope for v0.1: screen recording moved out of v0.1 and reserved for v0.2. Updated “What the AI observes” defaults, retention text, and “What the AI never collects” wording to reflect no screen capture in v0.1. |
 | 2026-02-16 | Major restructure per CEO feedback on PR #6. Six features: Apps (with App Gallery), MCP Integrations, Chat (merges On-Demand Chat + Proactive Suggestions), MCP Browser (merges Execution Viewer + Execution Modes), Automations (new), Context (merges Activity Capture + Context Card + user-facing Memory summary). Technical memory architecture moved to llm-architecture.md. |
 | 2026-02-13 | Added features 5–6: On-Demand Chat (zero-context conversational interface, chat → action bridge, entry point from Proactive Suggestions) and Memory (four-layer system — conversation history, working memory, semantic recall via RAG, observational memory — covering both activity capture data and conversations). Updated Privacy section with memory data types. |
 | 2026-02-13 | Added fourth feature: Proactive Suggestions — native macOS notifications triggered by activity patterns, incoming signals, time-based context, state transitions, and thresholds. Includes throttling model (priority tiers, hourly caps, flow-state suppression, dismissal learning, bundling). Platform-level only. |

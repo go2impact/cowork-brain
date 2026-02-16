@@ -1,6 +1,6 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.3 — February 17, 2026**
+**v1.3.1 — February 17, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
@@ -94,13 +94,14 @@ v0.1 uses a persistent Playwright context — login state (cookies, localStorage
 
 ### Boot Sequence
 
-Three processes boot in parallel. Main waits for both utilities to signal ready before creating the renderer.
+Three processes boot in parallel. Main waits up to 10s for utilities to signal ready, then creates the renderer regardless (see [Startup Failure Policy](#startup-failure-policy)).
 
 **Main process:**
+0. MCP orphan cleanup — glob lockfiles, kill stale processes (see [MCP Connections](#mcp-connections))
 1. AppManager (lifecycle, settings)
 2. ThermalManager (hardware monitoring)
 3. Spawn Capture Utility + Agents & RAG Utility
-4. Wait for both utility processes to signal ready
+4. Wait up to 10s for both utility processes to signal ready (timeout → degraded mode)
 5. Create BrowserWindow (renderer)
 
 **Capture Utility:**
@@ -114,10 +115,43 @@ Three processes boot in parallel. Main waits for both utilities to signal ready 
 2. ProviderRegistry (Ollama + Gemini + OpenRouter via `createProviderRegistry()`)
 3. MastraManager (agent orchestration, memory)
 4. MCPManager (service connections, OAuth credential loading)
-5. EmbeddingManager (queue, Qwen3-0.6B via Ollama)
+5. EmbeddingManager (queue, Qwen3-Embedding-0.6B via Ollama)
 6. Signal ready to main
 
 Each step within a process is sequential — later steps depend on earlier ones. The three processes are independent and boot concurrently.
+
+### Startup Failure Policy
+
+The boot sequence above describes the happy path. If a utility process fails to start, the app must still be usable — not a black screen.
+
+**Service states** — Each utility process is tracked by Main with one of five states:
+
+| State | Meaning |
+|---|---|
+| `starting` | Process spawned, waiting for ready signal |
+| `running` | Ready signal received, fully operational |
+| `degraded` | Ready signal not received within timeout, or partial init failure (e.g., Ollama unreachable but DB connected) |
+| `restarting` | Crashed or timed out, auto-restart in progress |
+| `failed` | Max retries exhausted, manual intervention required |
+
+**Timeout + degraded boot** — Main waits up to 10 seconds for each utility's ready signal. If a utility doesn't respond:
+
+1. Main creates the BrowserWindow anyway (renderer always launches)
+2. The timed-out utility is marked `degraded` and Main begins retry
+3. Renderer receives health status via IPC and shows a degraded banner ("Agent features unavailable — reconnecting...")
+
+**Retry behavior** — Exponential backoff: 2s → 4s → 8s → 16s → 32s, max 5 retries. After max retries, state transitions to `failed` and the user sees "Agent services couldn't start. Check Settings for details." with a manual retry button.
+
+**What works in degraded mode:**
+
+| Agents & RAG down | Capture down |
+|---|---|
+| Settings, theme, app lifecycle: work | Settings, theme, app lifecycle: work |
+| Chat, automations, MCP tools: disabled | Chat, MCP tools: work (no fresh context) |
+| Context Card: shows stale data | Context Card: shows stale data |
+| Proactive notifications: disabled | Proactive notifications: degraded (MCP signals only, no capture triggers) |
+
+**Capture failure is less severe** — agent features still work, just without fresh activity context. Agents failure is more severe — all AI features are disabled.
 
 ---
 
@@ -195,7 +229,7 @@ User's desktop activity
 | Process | Package | Access | Pattern |
 |---|---|---|---|
 | Capture Utility | `libsql` (sync) | Read/Write | High-frequency writes (keystroke events, window changes). WAL mode. |
-| Agents & RAG Utility | `@mastra/libsql` (async) | Read/Write | Reads capture data for context. Writes agent memory, embeddings. Moderate frequency. |
+| Agents & RAG Utility | `@libsql/client` + `@mastra/libsql` (async) | Read/Write | Reads capture data for context. Writes agent memory, embeddings. Moderate frequency. |
 | Renderer | None (via IPC) | Read only | Requests data through main process IPC. Never touches DB directly. |
 
 WAL mode allows concurrent readers + one writer. The capture process writes frequently (sync). Mastra reads frequently and writes occasionally (async). This is the ideal WAL access pattern.
@@ -221,12 +255,25 @@ Renderer ←──IPC──→ Main Process ←──IPC──→ Capture Utilit
 | Capture → Main | Capture events (buffered), status updates |
 | Main → Agents | Context queries, chat messages, automation triggers |
 | Agents → Main | Agent responses, action results, notification triggers |
-| Main → Renderer | UI updates, chat responses, execution logs |
+| Main → Renderer | UI updates, chat responses, execution logs, service health events |
 | Renderer → Main | User input, chat messages, settings changes, approval decisions |
 | Agents → Playwright | Browser automation commands |
 | Playwright → Agents | Page state, action results |
 
 **The renderer never talks directly to capture or agents.** Everything routes through main. This keeps the sandboxed renderer clean and gives main a single point for logging, rate-limiting, and access control.
+
+**Capture and Agents never communicate via IPC either** — they share data through `cowork.db`. Capture writes; Agents polls and reads. No direct IPC channel between utility processes.
+
+### Service Health IPC
+
+Main tracks the health of each utility process (see [Startup Failure Policy](#startup-failure-policy)) and pushes status changes to the renderer:
+
+| Channel | Direction | Payload | When |
+|---|---|---|---|
+| `system:health` | Main → Renderer | `{ service: string, state: ServiceState, message?: string }` | On any state transition (starting → running, running → restarting, etc.) |
+| `system:retry` | Renderer → Main | `{ service: string }` | User clicks manual retry button in degraded/failed banner |
+
+The renderer uses `system:health` events to show/hide degraded banners and disable UI sections that depend on unavailable services. No polling — purely event-driven.
 
 ### Streaming Protocol
 
@@ -294,6 +341,7 @@ The preload script exposes `window.cowork.*` with scoped namespaces:
 | `cowork.browser` | Main → Agents & RAG → Playwright | Browser automation commands |
 | `cowork.capture` | Main → Capture | Capture status, stream toggles |
 | `cowork.context` | Main → Agents & RAG | Context Card data, activity queries |
+| `cowork.system` | Main | Service health events, manual retry, app diagnostics |
 
 ---
 
@@ -369,7 +417,7 @@ Reused from the existing codebase — proven buffer management and event chunkin
 - One native module instead of two — one ABI rebuild, one ASAR unpack
 - Proven in production Electron apps (Beekeeper Studio, Outerbase Studio Desktop)
 
-**Schema is not finalized.** The new schema will be designed from [product-features.md](../product/product-features.md) — specifically the six input streams (Context), four memory layers, and Mastra agent state requirements. The old tracking-oriented schema does not carry over.
+**Schema is not finalized.** The new schema will be designed from [product-features.md](../product/product-features.md) — specifically the five active v0.1 input streams (plus screen recording in v0.2), four memory layers, and Mastra agent state requirements. The old tracking-oriented schema does not carry over.
 
 ### Database Hardening
 
@@ -589,11 +637,13 @@ When the Agents & RAG utility process starts (or auto-restarts after a crash):
 
 Unlike file-upload apps, our pipeline triggers when the Capture Utility process flushes data to `cowork.db`. The Agents & RAG utility process polls for new `pending` rows. No user-initiated upload, no file parsing — capture data is already text.
 
+Once embedded, this data is retrievable via the [RAG Context Assembly](#rag-context-assembly) pipeline.
+
 ---
 
 ## RAG Context Assembly
 
-When the agent needs grounded context for a response, the RAG pipeline assembles material from multiple sources in priority order. This section describes the retrieval sub-pipeline within Mastra's `semanticRecall` layer — how grounded material is fetched and ranked. The overall context window composition (conversation history + working memory + semantic recall + observational memory) is handled by Mastra's Memory system (see [Memory System](#memory-system)).
+When the agent needs grounded context for a response, the RAG pipeline assembles material from multiple sources in priority order. Source data is ingested by the [Embedding Pipeline](#embedding-pipeline). This section describes the retrieval sub-pipeline within Mastra's `semanticRecall` layer — how grounded material is fetched and ranked. The overall context window composition (conversation history + working memory + semantic recall + observational memory) is handled by Mastra's Memory system (see [Memory System](#memory-system)).
 
 ### Multi-Source Priority Order
 
@@ -701,6 +751,8 @@ Services connect via MCP servers. The Agents & RAG utility process manages all c
 
 ```
 starting ──→ running ──→ stopped (user toggled off)
+                │              │
+                │              └──→ starting (user re-enabled)
                 │
                 └──→ error (connection lost, auth expired)
                        │
@@ -717,11 +769,11 @@ starting ──→ running ──→ stopped (user toggled off)
 **OAuth flow:**
 - System browser opens for login (renderer can't handle OAuth popups — sandboxed)
 - PKCE flow via `OAuthClientProvider` from `@modelcontextprotocol/sdk`
-- Credentials stored on-device: `{userData}/.mcp/{serverUrlHash}_tokens.json`
+- Credentials (OAuth tokens, API keys) stored in macOS Keychain via `keytar`, keyed by `cowork-mcp-{serverUrlHash}`. Non-secret metadata (server URL, scopes, expiry timestamp) stored in `{userData}/.mcp/{serverUrlHash}.json`. Tokens never written to plaintext files.
 - Token refresh handled automatically; expiry detection triggers "reconnect" prompt in UI
 - Main process opens browser and captures OAuth callback, forwards tokens to Agents & RAG utility
 
-**MCP orphan cleanup** — Each stdio MCP server gets a lockfile (`{cowork_data_dir}/mcp_lock_{serverNameHash}.json` with child PID). On app startup, Main process runs a sweep before Agents boots: glob lockfiles → check process alive (signal 0) → kill stale process (SIGTERM, 3s grace, then SIGKILL) → delete lockfile. Prevents orphan MCP servers from consuming ports and memory after a crash.
+**MCP orphan cleanup** — Each stdio MCP server gets a lockfile (`{cowork_data_dir}/mcp_lock_{serverNameHash}.json`) with `childPid`, normalized `executablePath`, and `argvHash` (SHA256 of normalized args). On app startup, Main process runs a sweep before Agents boots: glob lockfiles → check process alive (signal 0) → fetch live command line via `ps -p <pid> -o command=` → parse + normalize live executable path and args → compare `(executablePath, argvHash)` from lockfile vs live process → kill only on exact match (SIGTERM, 3s grace, then SIGKILL) → delete lockfile. If PID is dead or identity doesn't match, just delete the stale lockfile. Prevents orphan MCP servers from consuming ports and memory after a crash without risking PID-reuse false kills.
 
 **Client cache with dedup** — `pendingClients` Map prevents duplicate connections when the agent fires multiple tool calls in rapid succession during startup. Before reuse, a health ping (1s timeout) verifies the client is still alive.
 
@@ -752,9 +804,9 @@ When the LLM requests a tool call, a 6-phase hierarchy decides whether to execut
 | Phase | Check | Result |
 |---|---|---|
 | 1. Security blacklist | Hardcoded dangerous-action list (e.g., `delete_*`, `send_email`, `execute_command`) | → Always require approval |
-| 2. Always-approve tools | Tool config says `requiresApproval: 'always'` | → Always require approval |
+| 2. Mandatory approval tools | Tool config says `requiresApproval: 'always'` | → Always require approval |
 | 3. Automation context | Running inside an automation flow | → Auto-execute (unless Phase 1/2 blocked) |
-| 4. Per-server policy | MCP server has custom approval policy | → Follow server policy |
+| 4. Per-server policy | MCP server declares approval policy in its `mcp_servers` config row (e.g., `approval_policy: 'auto'` or `'manual'`). v0.1: not implemented — all servers use Phase 6 default. | → Follow server policy |
 | 5. Auto-run mode | User setting: "Trust this integration" | → Allow all remaining tools |
 | 6. Default mode | Allow-list or manual mode | → Allow-list: tool in list → allow, else block. Manual: show approval dialog |
 
@@ -793,7 +845,7 @@ Agents & RAG Utility (polling loop, configurable interval)
         └── Scheduled triggers, meeting proximity from calendar MCP
     │
     ▼
-Throttling engine (in-memory + cowork.db)
+Throttling engine (cowork.db — all state persisted)
     │
     ├── Priority tier check (urgent / helpful / informational)
     ├── Hourly cap check per tier
@@ -811,7 +863,7 @@ IPC to Main → Main dispatches via Electron Notification API → macOS
 
 | Step | Process | How |
 |---|---|---|
-| Trigger detection + throttling | Agents & RAG Utility | Polling loop queries cowork.db (capture data) + MCP services. Throttling state: delivery counts and cooldowns in-memory, dismissal history in cowork.db. |
+| Trigger detection + throttling | Agents & RAG Utility | Polling loop queries cowork.db (capture data) + MCP services. All throttling state persisted in cowork.db: delivery counts, cooldowns, and dismissal history. Survives process crashes — a restart doesn't bypass hourly caps or cooldown periods. |
 | Notification dispatch | Main | Receives notification payload via IPC from Agents. Creates `Notification` via Electron API. No logic — just dispatch. |
 | User response | Main → Agents & RAG / Renderer | **Accept** → Main routes to Agents → Agents begins execution (MCP/Browser path). **Dismiss** → Main routes to Agents → Agents logs dismissal to cowork.db. **Expand** → Main focuses Renderer → creates chat thread with pre-loaded context. |
 
@@ -842,7 +894,7 @@ The Automations feature (product-features.md §5) uses a flow executor for seque
 
 **Flow-as-tool** — Automations registered as Mastra tools so the agent can invoke flows mid-conversation. The agent calls `flow_{uuid}` as a tool, passing variables as arguments.
 
-**Safety rails apply** — Automation steps go through the same multi-phase tool approval policy. Approval gates pause the flow and notify the user. This prevents automations from taking destructive actions without consent.
+**Safety rails apply** — Automation steps go through the same multi-phase tool approval policy. Approval gates pause the flow and notify the user. This prevents automations from taking destructive actions without consent. When an agent invokes a flow via `flow_{uuid}` tool call, the flow runs in automation context (Phase 3) — its steps auto-execute unless blocked by Phase 1 (security blacklist) or Phase 2 (mandatory approval).
 
 ---
 
@@ -855,23 +907,23 @@ How each product feature maps to the underlying infrastructure:
 | **Apps** | Renderer + Agents & RAG | Apps rendered in renderer. Apps access platform via MCP tools (agent-as-tool pattern). App Gallery in renderer. |
 | **MCP Integrations** | Agents & RAG | MCP SDK manages connections. Health monitoring. OAuth. |
 | **Chat** (on-demand) | Renderer → Main → Agents & RAG | User message → IPC → complexity router → local/cloud brain → RAG context assembly → response → IPC → renderer |
-| **Chat** (proactive) | Agents & RAG → Main → macOS | Trigger engine polls capture data + MCP services → throttling gates → main dispatches macOS notification → user accepts/dismisses/expands. See [Proactive Notifications](#proactive-notifications). |
+| **Proactive Notifications** | Agents & RAG → Main → macOS | Trigger engine polls capture data + MCP services → throttling gates → main dispatches macOS notification → user accepts/dismisses/expands. See [Proactive Notifications](#proactive-notifications). |
 | **MCP Browser** | Renderer + Agents & RAG + Playwright | Execution log in renderer. Agent sends commands to Playwright child. Live browser view streamed to renderer. Approval gates. |
 | **Automations** | Agents & RAG | Trigger engine (time/event/activity-pattern). Runs agent tasks. Logs to cowork.db. |
-| **Context** | Capture Utility → cowork.db → Agents & RAG → Renderer | Six input streams captured → stored → embedded → queryable via RAG → Context Card in renderer. |
+| **Context** | Capture Utility → cowork.db → Agents & RAG → Renderer | Five input streams in v0.1 (screen recording reserved for v0.2) → stored → embedded → queryable via RAG → Context Card in renderer. |
 
 **Context stream defaults:** Not all streams are active by default. Per [product-features.md](../product/product-features.md#what-the-ai-observes):
 
-| Stream | Default |
-|---|---|
-| Window & app tracking | ON |
-| Focus detection | ON |
-| Browser activity (agent sessions) | ON during sessions |
-| Keystroke & input capture | **OFF** (opt-in) |
-| Screen recording | **OFF** (opt-in) |
-| Clipboard monitoring | **OFF** (opt-in) |
+| Stream | Default | v0.1 |
+|---|---|---|
+| Window & app tracking | ON | Yes |
+| Focus detection | ON | Yes |
+| Browser activity (agent sessions) | ON during sessions | Yes |
+| Keystroke & input capture | **OFF** (opt-in) | Yes |
+| Screen recording | — | No (reserved for v0.2) |
+| Clipboard monitoring | **OFF** (opt-in) | Yes |
 
-Granular per-stream consent is required. Users can enable/disable each stream independently.
+Granular per-stream consent is required. Users can enable/disable each active stream independently.
 
 ---
 
@@ -934,7 +986,7 @@ src/
 
 ### Build Configuration
 
-**ASAR unpack** — libsql and native capture addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`) must be unpacked from the ASAR archive for `dlopen()`. Native `.node` files can't be loaded from inside ASAR — they need real filesystem paths.
+**ASAR unpack** — libsql, native capture addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`), and `keytar` (Keychain credential access) must be unpacked from the ASAR archive for `dlopen()`. Native `.node` files can't be loaded from inside ASAR — they need real filesystem paths.
 
 **Post-pack patching** — libsql native module patching at both install-time (pnpm patch) and post-pack (script after electron-builder). Belt-and-suspenders approach ensures patches survive regardless of how the build pipeline transforms `node_modules`.
 
@@ -1003,7 +1055,7 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 | 3 | **App Gallery hosting** — where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service? | Affects Apps feature architecture and distribution. |
 | 4 | **Bundle ID rename** — existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar? | Affects signing, notarization, and auto-updater. |
 | 5 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
-| 6 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts` + `tracedInvoke` pattern for observability. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
+| 6 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts`, `tracedInvoke` pattern for observability, `system:health` + `system:retry` channels for service health. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
 | 7 | **App-to-platform MCP transport** — how do third-party apps (rendered in Electron) access platform MCP tools? IPC bridge in preload (more secure, custom transport) vs. local HTTP server (reuses standard MCP client, opens a port). | Affects Apps feature security model and implementation. |
 | 8 | **MCP install registry** — where do MCP server manifests come from? Own registry, community standard (e.g., MCP marketplace), or manual config only for v0.1? | Affects MCP install state machine (step 1: fetch manifest). |
 | 9 | **Refusal message exclusion** — query refusal messages must be visible in the UI but excluded from Mastra's `lastMessages` context loading. Options: store refusals outside Mastra's message store (separate UI-only table), use Mastra metadata filtering if supported, or post-filter Mastra's context output. | Affects RAG query refusal implementation. |
@@ -1029,3 +1081,4 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 **v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.
 **v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
 **v1.3 (Feb 17, 2026):** Integrated 5 remaining adaptation guides (Jan, Chatbox, LobeChat, AnythingLLM, Cherry Studio). Added: database hardening (single-client access, vector index namespacing, schema migration strategy), model lifecycle (preflight fit check, download integrity, path safety), embedding pipeline (resumable ingestion, batch checkpoints, crash recovery), RAG context assembly (multi-source priority order, fillSourceWindow backfill, query refusal), agent execution model (persistent operations, instruction executor, max-step safety), multi-phase tool approval policy (6-phase hierarchy, mixed execution, approval state), MCP enhancements (orphan cleanup, client cache with dedup, notification-driven invalidation, per-call abort, 7-step install state machine), IPC observability (tracedInvoke, 4-process waterfall, typed IpcChannel constants, trace storage), automations engine (flow executor, variable substitution, block types, flow-as-tool), build configuration (ASAR unpack, post-pack patching, process-specific aliases, chunk inlining), complexity router askId grouping, explicit hardware reserve breakdown.
+**v1.3.1 (Feb 17, 2026):** Normative behavior pass. Added: startup failure policy (timeout + degraded boot, service states, retry with backoff, degraded mode capabilities), service health IPC contract (`system:health` + `system:retry` channels), Keychain-backed MCP credential storage (replaces plaintext token files), crash-safe notification throttling (all counters persisted to cowork.db), PID-reuse safety for MCP orphan cleanup (executable path + argv hash identity check before kill). Review fixes: renamed "Chat (proactive)" to "Proactive Notifications", screen recording marked not-in-v0.1, MCPClient lifecycle added stopped→starting transition, Phase 2 renamed to "Mandatory approval tools", Phase 4 per-server policy defined, utility-to-utility DB-only communication documented, embedding model name normalized, DB access table updated to show both SDK layers, cross-references between Embedding Pipeline and RAG Context Assembly, flow-as-tool automation context clarified.
