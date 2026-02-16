@@ -4,6 +4,18 @@
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
+**Open items (5 questions, 2 inline):**
+
+| # | Question | Blocks v0.1? | What it takes to resolve |
+|---|---|---|---|
+| 1 | **Mastra in utility process** | Yes — everything depends on this | PoC spike: init Mastra + libsql in Electron utility process, run one agent call |
+| 2 | **Database schema** | Yes — can't write code without tables | Design from product-features.md: 5 capture streams, 4 memory layers, agent state |
+| 3 | **IPC contract** | Yes — can't wire processes | Full channel inventory + Zod schemas (patterns defined, channels not enumerated) |
+| 4 | **App-to-platform MCP transport** | No — Apps feature, not core loop | Binary decision: IPC bridge in preload vs local HTTP server |
+| 5 | **Refusal message exclusion** | No — edge case in RAG | Depends on Mastra's `lastMessages` metadata filtering support |
+
+Inline: **Mastra external client injection** (line 424, tied to Q#1 spike) · **Observer model choice** (line 602, needs benchmarking)
+
 **This doc consolidates decisions from:**
 - [DESKTOP_FRAMEWORK_DECISION.md](../decisions/DESKTOP_FRAMEWORK_DECISION.md) — why Electron, multi-process model
 - [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) — what we keep/gut, directory structure, execution phases
