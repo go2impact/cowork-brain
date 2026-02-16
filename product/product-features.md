@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Working draft (capability map, not a release scope contract) |
-| **Last Updated** | 2026-02-13 |
+| **Last Updated** | 2026-02-16 |
 | **Purpose** | Detailed feature set and capabilities for the Cowork.ai desktop sidecar. Product-focused — architecture details appear only where needed to define privacy boundaries. |
 
 
@@ -15,6 +15,7 @@ This document covers **user-facing features and capabilities**. The following ar
 
 - **Local LLM / two-brain architecture** (local DeepSeek + cloud OpenRouter, complexity router, thermal management) → [llm-architecture.md](../architecture/llm-architecture.md)
 - **Billing, token budgets, and pricing tiers** (Cowork Credits, free tier quota, spend caps, BYOK) → [llm-architecture.md](../architecture/llm-architecture.md) and [llm-strategy.md](../strategy/llm-strategy.md)
+- **Memory architecture** (four-layer model, data pipeline, RAG retrieval flow, context management) → [llm-architecture.md](../architecture/llm-architecture.md)
 
 ---
 
@@ -30,7 +31,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 **Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it — without sending your data off-device.
 
-**Pushes and pulls.** The platform comes to you when something is worth your attention (Proactive Suggestions). You come to it when you have a question (On-Demand Chat). Both paths lead to action.
+**Pushes and pulls.** The platform comes to you when something is worth your attention (Chat — proactive notifications). You come to it when you have a question (Chat — on-demand conversation). Both paths lead to action.
 
 **You are always in control.** The AI works in the open — never behind a curtain. You can intervene at any moment: pause it, correct it, take over, or hand back.
 
@@ -42,21 +43,21 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 | # | Feature | What it does |
 |---|---------|-------------|
-| 1 | [**App Ecosystem**](#1-app-ecosystem) | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Apps get tools, not agents — they access platform capabilities through platform-provided MCPs (connected to Activity Capture data and connected services). The platform agent stays as the single orchestrator. |
-| 2 | [**Execution Modes**](#2-execution-modes) | Agents + custom tools execute through two paths: Tools → MCP (fast, background) or Tools → Browser (visible, coachable). Configurable per app/category/action. |
-| 3 | [**Activity Capture & Context Engine**](#3-activity-capture--context-engine) | Six input streams: window/app tracking, keystroke/input capture, focus detection, browser activity, screen recording, clipboard monitoring. Local SQLite storage. This data is exposed to apps via platform-provided MCPs. Most streams off by default. |
-| 4 | [**Proactive Suggestions**](#4-proactive-suggestions) | The platform watches captured activity and connected service signals, then surfaces native macOS notifications when something is worth acting on — an insight, an offer to help, or a ready-to-execute action. Accepting a suggestion hands off to Execution Modes. Platform-level only; third-party apps cannot trigger notifications directly. |
-| 5 | [**On-Demand Chat**](#5-on-demand-chat) | Conversational interface where the AI already has your work context — activity history, connected services, current screen. Zero-context queries, cross-service search, current-screen awareness. Chat naturally escalates to execution via Execution Modes. Entry point from Proactive Suggestions. Platform-level. |
-| 6 | [**Memory**](#6-memory) | Four-layer memory system covering both captured activity data and conversations: conversation history (short-term), working memory (persistent user profile), semantic recall (RAG over embedded activity + conversation data), observational memory (background compression of raw history into dense logs). All on-device. |
+| 1 | [**Apps**](#1-apps) | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Apps get tools, not agents — they access platform capabilities through platform-provided MCPs. Browse, search, and install apps from the App Gallery. |
+| 2 | [**MCP Integrations**](#2-mcp-integrations) | Connect services (Zendesk, Gmail, Slack, etc.) via MCP. Manage connections, monitor health, configure scopes. The foundation layer that both Apps and Chat use. |
+| 3 | [**Chat**](#3-chat) | Two interaction modes: on-demand conversation (you ask, the AI already knows your context) and proactive notifications (the platform surfaces what matters). Both lead to action. |
+| 4 | [**MCP Browser**](#4-mcp-browser) | Watch the AI work in real time. See every tool call, every browser action, every outcome. Approval gates for sensitive actions. The trust mechanism that enables autonomy. |
+| 5 | [**Automations**](#5-automations) | Rules and workflows that run without intervention. Time-based, event-based, and activity-pattern triggers. Logged and auditable. |
+| 6 | [**Context**](#6-context) | Ambient awareness: six input streams capture what you're working on. The AI remembers your past conversations, preferences, and how you communicate — all on-device. Context Card shows your current state at a glance. |
 
 
 ---
 
 ## Feature Set
 
-### 1. App Ecosystem
+### 1. Apps
 
-Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Activity Capture & Context Engine — giving apps access to work context, activity history, and connected service data.
+Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Those apps have access to platform-provided MCPs, which are connected to data from the Context engine — giving apps access to work context, activity history, and connected service data.
 
 **Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, routing (local vs. cloud brain), budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
 
@@ -67,90 +68,82 @@ Each installed app shows a compact status card in the sidesheet (unread count, q
 - Each app declares what MCP tools it needs (like app permissions on a phone). The platform grants scoped access per app.
 - Activity context is exposed as read-only MCP resources — apps can read context to be relevant, but cannot write to the activity store.
 - Cross-app actions run only when required connections and scopes are available.
+
+#### App Gallery
+
+Where users find and install new apps. Browse by category, search by name, and install with one click.
+
+- **Categories:** Productivity, Communication, CRM, Developer Tools, Custom/Community.
+- **Each listing shows:** Icon, name, description, what MCP servers it connects to, install button.
+- **After install:** App appears in sidesheet, begins syncing via MCP.
+- **Configuration:** Per-app settings for connected accounts, notification preferences, and MCP scope permissions.
+
+**In the SideSheet:** Each installed app gets a compact card showing its current state. "Browse Apps" link at the bottom of the app list.
+**In the Detail Canvas:** Full gallery with categories, search, featured apps, and install flow.
+
+---
+
+### 2. MCP Integrations
+
+MCP Integrations are the foundation layer. Apps and Chat both depend on connected services — MCP Integrations is where you manage those connections.
+
+**What it covers:**
+
+- **Connected services** — Zendesk, Gmail, Slack, Google Calendar, Salesforce, Linear, and more. Each connected via MCP servers.
+- **Available tools per service** — list_tickets, send_email, search_channels, etc. Visible so users understand what the AI can access.
+- **Connection health** — status indicators, last sync time, auth state.
+- **Add new connection** — OAuth flow to connect a new service.
+
+**What happens on disconnect / auth expiry:**
+
 - If a required source is disconnected or auth expires, the action pauses and the user is notified with the exact blocker and reconnect action.
 - Partial permissions degrade gracefully (read-only summaries allowed; blocked write actions require reconnect/approval).
 
-**Execution Viewer — Full Transparency:**
+**Relationship to Apps:** Apps declare what MCP tools they need. MCP Integrations is where those connections are actually managed — think of it as the plumbing that apps and chat sit on top of.
 
-The Execution Viewer is a dual-pane interface that shows everything the AI is doing — both the API calls happening in the background and the browser actions happening visually.
-
-- **Live browser view** — Watch the AI's browser session in real-time. See it navigate apps, fill forms, compose replies, and submit actions. Controls: Pause, Take Over (switch to your own mouse/keyboard), Resume. The browser view is only active during browser-mode execution.
-- **Execution log** — A unified timeline of all AI activity: MCP calls, browser actions, coaching interventions, and outcomes. Every entry shows what happened, when, in which app, and the result.
-
-Example execution log:
-
-```
-10:32:04  MCP     zendesk.tickets.get #4521      → read ticket
-10:32:06  MCP     ai.draft-reply                 → generated reply
-10:32:09  BROWSER navigate zendesk.com/tickets/4521
-10:32:12  BROWSER type draft into reply field
-10:32:14  USER    edited reply in browser
-10:32:18  BROWSER click "Submit as Solved"
-```
-
-The Execution Viewer is always accessible. Transparency builds trust; trust enables autonomy.
+**In the SideSheet:** Accessed via settings or app management — doesn't need a dedicated card.
+**In the Detail Canvas:** Connection management interface with status, tools, and add-new flow.
 
 ---
 
-### 2. Execution Modes
+### 3. Chat
 
-Agents use custom tools to execute tasks through two paths:
+Chat is the conversational interface — both when you reach out and when the AI reaches out to you.
 
-**Path 1: Agent → Tools → MCP (background)**
+#### On-demand conversation
 
-- Fast, reliable, runs in the background.
-- The agent calls custom tools, which connect to services (Zendesk, Gmail, calendars, etc.) via MCP — no browser involved.
-- Best for: data retrieval, bulk operations, well-defined API endpoints, read operations, automated categorization.
-- Example: reading 50 Zendesk tickets, categorizing emails, fetching calendar events, checking Linear for existing issues.
+The AI already has your context — from activity capture (what you've been working on), connected services (your tickets, emails, threads), and memory (what it's learned about you over time). You don't copy-paste. You don't explain background. You ask, it knows.
 
-**Path 2: Agent → Tools → Browser (visible execution)**
+**What it draws from:**
 
-- The agent drives a browser session (Playwright) for visible, coachable actions — while still using custom tools + MCP for data retrieval and background operations.
-- Best for: complex multi-field forms, visual verification ("does this reply look right in context?"), apps without full API support, actions the user wants to watch and coach.
-- Example: composing a nuanced Zendesk reply in the actual UI, navigating a room booking portal, submitting a multi-step form in an internal tool.
+- **Activity data** — what you've been working on, how long, where. Retrieved via RAG from embedded activity data (see [Memory Architecture](../architecture/llm-architecture.md#embeddings-local-rag--memory-architecture)).
+- **Connected services** via MCP — Zendesk tickets, emails, Slack threads, calendar events. Queried live.
+- **Current-screen context** — active app + window title from activity capture's window tracking. "Summarize this" works because the AI knows what's on your screen.
+- **Memory** — past conversations, your preferences, communication patterns, learned context.
 
-**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to third-party apps (built in Google AI Studio) via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (local vs. cloud brain, MCP vs. browser) with full safety rails. Apps never invoke agents directly.
+**Key behaviors:**
 
-**Both paths in one task — a Zendesk ticket reply:**
+- **Zero-context queries** — "What was that refund ticket I was looking at yesterday?" just works. The AI searches embedded activity data (RAG) to find the matching window title, URL, and timestamp — then pulls the ticket details from Zendesk via MCP.
+- **Cross-service search** — "Find where we discussed the API rate limit issue" searches across embedded activity data and connected services simultaneously.
+- **Current-screen awareness** — "Summarize this" when you're on a Zendesk ticket. The AI reads window context from activity capture.
+- **Entry point from notifications** — accepting or expanding a proactive notification opens a chat thread with that context pre-loaded. You can ask questions and refine before acting.
 
-1. **MCP** — agent reads the ticket content, customer history, and related tickets (fast, background).
-2. **MCP** — agent drafts the reply (fast, background).
-3. Draft is reviewed and approved by the user.
-4. **Browser** — agent opens the Zendesk ticket in the actual UI, pastes the approved reply, and positions for send (visible, coachable).
-5. User watches, optionally coaches ("add a note about the refund timeline"), and the AI adjusts in real-time.
-6. **Browser** — agent clicks Send. User sees it happen.
-7. **MCP** — agent logs the completed action to the audit trail.
+**Example interactions:**
 
-**Key principle:** Agents choose the right path for each step. Tools + MCP for data and background work. Browser for visible execution and user-supervised actions. The user configures which path applies per app, per category, or per action — and can override on any individual item.
+| You say | What happens |
+|---------|-------------|
+| "What was that refund ticket I was looking at yesterday?" | RAG search on embedded activity data finds the window title + URL → pulls ticket details from Zendesk via MCP |
+| "Summarize my last 3 Slack threads with Sarah" | Queries connected Slack via MCP, summarizes |
+| "What have I spent most of my time on today?" | Queries activity capture data, gives time breakdown |
+| "Draft a reply to this email — same tone as my last few" | Reads current screen context + email history + communication patterns from memory, drafts in your voice |
+| "Find where we discussed the API rate limit issue" | RAG search across embedded activity data + connected services |
+| "Batch-close these 4 tickets with a thank-you message" | Chat → action handoff to MCP Browser |
 
----
+**Platform-level:** One global chat across all connected services and activity data. Apps don't have their own chat interfaces; they surface status in the sidesheet.
 
-### 3. Activity Capture & Context Engine
+#### Proactive notifications
 
-The AI needs context to be useful. Activity capture provides that context — what you're working on, how you communicate, where you spend your time. This data feeds the AI's ability to act relevantly.
-
-**Input streams:**
-
-| Stream | Default | Used for |
-|--------|---------|----------|
-| **Window & app tracking** (active app, window title, browser URL via macOS Accessibility API) | On | Work context |
-| **Keystroke & input capture** (raw input → communication patterns) | Off (opt-in) | Communication pattern extraction |
-| **Focus detection** (extended single-app sessions, derived from window tracking) | On | Flow-state detection |
-| **Browser activity** (pages visited, actions taken during agent sessions) | On during sessions | Execution Viewer, audit trail |
-| **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
-| **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
-
-**Data flow:** Raw capture → local SQLite (GRDB, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device. Processing pipeline that discards raw input is not yet implemented — raw data currently persists locally. See Memory (feature 6) for the full pipeline: how raw activity data gets embedded, stored in the vector store, and retrieved via RAG at query time.
-
-**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
-
----
-
-### 4. Proactive Suggestions
-
-Activity Capture collects context. Apps query it on demand. But context sitting in a database is inert — nobody benefits until something acts on it. Proactive Suggestions close that gap: the platform watches captured activity and connected service signals, and surfaces a native macOS notification when something is worth your attention.
-
-Each suggestion is an entry point to action. Accepting one hands off to Execution Modes — the notification is the consent handshake before the agent acts.
+The platform watches captured activity and connected service signals, then surfaces a native macOS notification when something is worth acting on — an insight, an offer to help, or a ready-to-execute action. Accepting a notification hands off to execution via the MCP Browser.
 
 **Trigger types:**
 
@@ -169,163 +162,153 @@ Each suggestion is an entry point to action. Accepting one hands off to Executio
 - **Ready action** — "3 tickets are ready to close — batch-resolve?"
 - **Context bridge** — "Your 2pm is with the same customer from ticket #4521 — here's the thread history."
 
-**Notification → Execution handshake:**
+**Notification → execution handshake:**
 
 1. Platform detects a trigger worth surfacing.
 2. Native macOS notification appears with a title, context line, and action button(s).
-3. **Accept** → hands off to Execution Modes (MCP path, browser path, or both depending on the action).
+3. **Accept** → hands off to execution (MCP path, browser path, or both depending on the action).
 4. **Dismiss** → logged as a signal; repeated dismissals of the same trigger type reduce its future frequency.
-5. **Expand** → opens the relevant app card in the sidesheet for deeper interaction.
+5. **Expand** → opens a chat thread with that context pre-loaded for deeper interaction.
 
-**Throttling & notification fatigue:**
+**Throttling:** Notifications are only useful if they don't become noise. The platform enforces priority tiers (urgent, helpful, informational — each with its own delivery rules), hourly caps per tier (urgent uncapped; helpful and informational capped, thresholds TBD from usage data), flow-state suppression (deep work detected → non-urgent notifications held until context switch), dismissal learning (consistently dismissed triggers get deprioritized), bundling (related notifications grouped into one), and cooldown periods after dismissal.
 
-Proactive suggestions are only useful if they don't become noise. The platform enforces:
+**Platform-level only:** Third-party apps cannot trigger notifications directly. Apps surface their status in the sidesheet (unread counts, queue depth, next event); the platform decides what crosses the threshold for a native notification. This keeps notification volume under platform control.
 
-- **Priority tiers** — Urgent (time-sensitive, high-impact), Helpful (saves effort, not time-critical), Informational (FYI, lowest priority). Each tier has its own delivery rules.
-- **Hourly caps** — Urgent: uncapped (these matter). Helpful: capped per hour. Informational: capped lower. Exact thresholds TBD — will be tuned from usage data.
-- **Flow-state suppression** — If Activity Capture's focus detection identifies an extended single-app session (deep work), non-urgent suggestions are held and delivered when the user switches context.
-- **Dismissal learning** — The platform tracks accept vs. dismiss rates per trigger type. Triggers that are consistently dismissed get deprioritized; triggers that are consistently accepted get promoted.
-- **Bundling** — Related suggestions (e.g., "5 tickets are ready to close") are grouped into a single notification, not five separate ones.
-- **Cooldown** — After a dismissal, the same trigger type won't re-fire for a configurable cooldown period.
+**Privacy:** Notifications are generated on-device from local activity data. No notification content leaves the device. Users can disable notifications globally, per trigger type, or per connected service.
 
-**Platform-level only:**
+#### Chat → action bridge
 
-Third-party apps cannot trigger notifications directly. Apps surface their status in the sidesheet (unread counts, queue depth, next event); the platform decides what crosses the threshold for a native notification. This keeps notification volume under platform control and prevents app spam.
-
-**Privacy:** Suggestions are generated on-device from local activity data. No suggestion content leaves the device. Users can disable suggestions globally, per trigger type, or per connected service.
+Conversation naturally escalates to execution. The AI drafts a reply → proactively suggests sending → hands off to the MCP Browser. The AI offers agentic next steps ("Want me to send this?" / "Should I batch-close these?") in addition to responding to direct requests.
 
 ---
 
-### 5. On-Demand Chat
+### 4. MCP Browser
 
-Activity Capture collects context. Apps act on it. Proactive Suggestions surface it. But none of those give the user a way to **pull** — to just ask a question and get an answer from an AI that already knows their work. On-Demand Chat is that interface.
+The MCP Browser is the trust mechanism. It shows everything the AI is doing — both the API calls happening in the background and the browser actions happening visually. Transparency builds trust; trust enables autonomy.
 
-The AI already has your context — from Activity Capture (what you've been working on), connected services (your tickets, emails, threads), and Memory (what it's learned about you over time). You don't copy-paste. You don't explain background. You ask, it knows.
+#### What you see
 
-**What it draws from:**
+- **Live browser view** — Watch the AI's browser session in real-time. See it navigate apps, fill forms, compose replies, and submit actions. Controls: Pause, Take Over (switch to your own mouse/keyboard), Resume. The browser view is only active during browser-mode execution.
+- **Execution log** — A unified timeline of all AI activity: MCP calls, browser actions, coaching interventions, and outcomes. Every entry shows what happened, when, in which app, and the result.
 
-- **Activity Capture data** (feature 3) — what you've been working on, how long, where. Retrieved via RAG from embedded activity data (see Memory, feature 6).
-- **Connected services** via MCP — Zendesk tickets, emails, Slack threads, calendar events. Queried live.
-- **Current-screen context** — active app + window title from Activity Capture's window tracking. "Summarize this" works because the AI knows what's on your screen.
-- **Memory** (feature 6) — past conversations, your preferences, communication patterns, learned context.
+Example execution log:
 
-**Key behaviors:**
+```
+10:32:04  MCP     zendesk.tickets.get #4521      → read ticket
+10:32:06  MCP     ai.draft-reply                 → generated reply
+10:32:09  BROWSER navigate zendesk.com/tickets/4521
+10:32:12  BROWSER type draft into reply field
+10:32:14  USER    edited reply in browser
+10:32:18  BROWSER click "Submit as Solved"
+```
 
-- **Zero-context queries** — "What was that refund ticket I was looking at yesterday?" just works. The AI searches embedded activity data (RAG) to find the matching window title, URL, and timestamp — then pulls the ticket details from Zendesk via MCP.
-- **Cross-service search** — "Find where we discussed the API rate limit issue" searches across embedded activity data and connected services simultaneously.
-- **Current-screen awareness** — "Summarize this" when you're on a Zendesk ticket. The AI reads window context from Activity Capture.
-- **Chat → Action bridge** — conversation naturally escalates to execution. The AI drafts a reply → proactively suggests sending → hands off to Execution Modes. The AI offers agentic next steps ("Want me to send this?" / "Should I batch-close these?") in addition to responding to direct requests.
-- **Entry point from Proactive Suggestions** — accepting or expanding a notification (feature 4) opens a chat thread with that context pre-loaded. You can ask questions and refine before acting.
+#### How execution works
 
-**Example interactions:**
+Agents use custom tools to execute tasks through two paths:
 
-| You say | What happens |
-|---------|-------------|
-| "What was that refund ticket I was looking at yesterday?" | RAG search on embedded activity data finds the window title + URL → pulls ticket details from Zendesk via MCP |
-| "Summarize my last 3 Slack threads with Sarah" | Queries connected Slack via MCP, summarizes |
-| "What have I spent most of my time on today?" | Queries activity capture data, gives time breakdown |
-| "Draft a reply to this email — same tone as my last few" | Reads current screen context + email history + communication patterns from memory, drafts in your voice |
-| "Find where we discussed the API rate limit issue" | RAG search across embedded activity data + connected services |
-| "Batch-close these 4 tickets with a thank-you message" | Chat → action handoff to Execution Modes |
+**Path 1: Agent → Tools → MCP (background)**
 
-**Platform-level:** One global chat across all connected services and activity data. Apps don't have their own chat interfaces; they surface status in the sidesheet.
+- Fast, reliable, runs in the background.
+- The agent calls custom tools, which connect to services (Zendesk, Gmail, calendars, etc.) via MCP — no browser involved.
+- Best for: data retrieval, bulk operations, well-defined API endpoints, read operations, automated categorization.
+- Example: reading 50 Zendesk tickets, categorizing emails, fetching calendar events.
 
-**UI:** Not decided. Could be keyboard shortcut (Spotlight-style), sidesheet panel, floating window, or a combination. To be determined during design phase.
+**Path 2: Agent → Tools → Browser (visible execution)**
+
+- The agent drives a browser session (Playwright) for visible, coachable actions — while still using custom tools + MCP for data retrieval and background operations.
+- Best for: complex multi-field forms, visual verification ("does this reply look right in context?"), apps without full API support, actions the user wants to watch and coach.
+- Example: composing a nuanced Zendesk reply in the actual UI, navigating a room booking portal, submitting a multi-step form.
+
+**Both paths in one task — a Zendesk ticket reply:**
+
+1. **MCP** — agent reads the ticket content, customer history, and related tickets (fast, background).
+2. **MCP** — agent drafts the reply (fast, background).
+3. Draft is reviewed and approved by the user.
+4. **Browser** — agent opens the Zendesk ticket in the actual UI, pastes the approved reply, and positions for send (visible, coachable).
+5. User watches, optionally coaches ("add a note about the refund timeline"), and the AI adjusts in real-time.
+6. **Browser** — agent clicks Send. User sees it happen.
+7. **MCP** — agent logs the completed action to the audit trail.
+
+**Approval gates:** Sensitive actions require explicit user approval before execution. Configurable per app, per category, or per action — the user controls how much autonomy the AI gets.
+
+**Key principle:** Agents choose the right path for each step. The user configures which path applies per app, per category, or per action — and can override on any individual item.
+
+**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to apps via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (local vs. cloud brain, MCP vs. browser) with full safety rails. Apps never invoke agents directly.
 
 ---
 
-### 6. Memory
+### 5. Automations
 
-Activity Capture (feature 3) observes what you're doing. On-Demand Chat (feature 5) lets you ask questions. But without memory, every interaction starts from scratch — the AI forgets what it observed yesterday, what you discussed last week, and what it's learned about how you work. Memory is what makes the AI get smarter over time.
+Rules and workflows that run without user intervention. Automations let you set up recurring or trigger-based tasks so the AI handles routine work automatically.
 
-**Two data sources, one retrieval system:**
+**Examples:**
 
-Memory doesn't just cover chat conversations. It covers **everything the AI has observed** — both captured activity data and conversation history. Both feed into the same pipeline.
+- "When a high-priority Zendesk ticket arrives, draft a response and notify me."
+- "Every morning at 9am, summarize my unread emails and Slack messages."
+- "When I start a Zoom call, mute Slack notifications."
 
-- **Source 1: Captured activity data** (from Activity Capture, feature 3) — window titles, app names, browser URLs, focus sessions, keystroke/input patterns (opt-in), browser session actions, clipboard content (opt-in), screen recordings (opt-in).
-- **Source 2: Conversation data** (from On-Demand Chat, feature 5) — user messages and AI responses, tool results and action outcomes, coaching interventions during execution.
+**Trigger types:**
 
-Both sources flow through the same pipeline: raw data → local storage → embeddings → vector store → retrievable via RAG.
+- **Time-based** — scheduled at specific times or intervals (daily digest, weekly report).
+- **Event-based** — fired by incoming signals (new ticket, email received, Slack mention).
+- **Activity-pattern** — triggered by observed behavior (deep work session started, context switch detected).
 
-**Data pipeline:**
+**Execution logs:** Every automation run is logged with what triggered it, what actions were taken, and the outcome. Users can review, pause, edit, or delete any automation.
 
-```
-Captured Activity Data (feature 3)     Conversation Data (feature 5)
-              │                                    │
-              ▼                                    ▼
-         ┌──────────────────────────────────────────────┐
-         │          Local Storage (on-device DB)         │
-         │          Raw data persisted locally            │
-         └────────────────────┬─────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┬────────────────────┐
-          ▼                   ▼                   ▼                    ▼
-   Conversation         Embedding           Observational          Working
-   History              Pipeline            Memory                 Memory
-          │                   │                   │                    │
-          ▼                   ▼                   ▼                    ▼
-   Recent N messages    Local embedding     Background agents     Structured user
-   kept in context      model generates     observe + compress    profile updated
-   for short-term       vector represen-    raw history into      from conversation
-   continuity           tations → stored    dense observation     + activity signals
-                        in local vector     logs. Raw data
-                        store, indexed      replaced over time;
-                        for similarity      observations persist
-                        search (RAG)        + get embedded too
-```
+**In the SideSheet:** "Active Automations" card showing what's running.
+**In the Detail Canvas:** Automation builder/editor and execution logs.
 
-**Four memory layers:**
+---
 
-| Layer | What it stores | Sources | Lifespan | Retrieval |
-|-------|---------------|---------|----------|-----------|
-| **Conversation History** | Recent messages from the current chat thread | Conversations | Current session | Direct — last N messages loaded into context |
-| **Working Memory** | Structured user profile — name, preferences, goals, communication style, project context | Conversations + activity patterns | Persistent (until user edits/deletes) | Direct — always loaded into context |
-| **Semantic Recall** | Past conversations and captured activity data | Both sources | Long-term | RAG — query embedded, vector similarity search retrieves relevant past context |
-| **Observational Memory** | Dense compressed logs from raw conversation and activity history | Both sources | Long-term | Background compression; retrievable via semantic recall |
+### 6. Context
 
-**How the layers work together:**
+Context is the AI's ambient awareness — what you're working on, what it remembers about you, and what it knows right now.
 
-1. **Conversation History** gives the AI short-term continuity — what you just said.
-2. **Working Memory** gives it persistent knowledge about you — who you are, how you work.
-3. **Semantic Recall** lets it find relevant past conversations *and* activity — what you discussed before, what you were working on last week.
-4. **Observational Memory** keeps long-term memory manageable — compress, don't delete.
+#### What the AI observes
 
-**How retrieval works at query time (RAG):**
+Six input streams provide the AI with work context:
 
-1. User asks a question in On-Demand Chat.
-2. The query is embedded using the local embedding model.
-3. Vector similarity search finds the most relevant past messages, activity data, and observations across all history.
-4. Retrieved context is assembled with priority: current conversation history (highest) → working memory profile → semantically recalled past exchanges and activity → observational summaries (lowest).
-5. Assembled context is fed to the model alongside the user's query.
-6. If combined context exceeds the model's window, memory processors trim lowest-priority content. Trimmed content isn't lost — it stays in the vector store for future retrieval.
+| Stream | Default | Used for |
+|--------|---------|----------|
+| **Window & app tracking** (active app, window title, browser URL via macOS Accessibility API) | On | Work context |
+| **Keystroke & input capture** (raw input → communication patterns) | Off (opt-in) | Communication pattern extraction |
+| **Focus detection** (extended single-app sessions, derived from window tracking) | On | Flow-state detection |
+| **Browser activity** (pages visited, actions taken during agent sessions) | On during sessions | MCP Browser, audit trail |
+| **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
+| **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
 
-**Relationship to Activity Capture (feature 3):**
+**Data flow:** Raw capture → local SQLite (GRDB, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
 
-| | Activity Capture (feature 3) | Memory (feature 6) |
-|---|---|---|
-| **Role** | The **collection** layer — observes and stores raw activity data | The **intelligence** layer — embeds, compresses, and retrieves data from both activity capture and conversations |
-| **Data flow** | Raw capture → local SQLite → structured context | Raw data (from both sources) → embeddings → vector store → RAG retrieval |
-| **Retrieval** | MCP resources queried by apps and agents (structured queries) | RAG pipeline at query time (semantic similarity search) |
+**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
 
-Activity Capture is the input. Memory is what makes that input searchable and persistent across sessions.
+#### What the AI remembers
 
-**Where raw data lives:**
+The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — all on-device, never sent to a server. Past conversations, working preferences, communication patterns, and activity history are embedded and indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
 
-All on-device:
+For the full technical architecture (four-layer memory model, data pipeline, RAG retrieval flow), see [Memory Architecture](../architecture/llm-architecture.md#embeddings-local-rag--memory-architecture).
 
-- **Raw activity data** — local database (same local SQLite as Activity Capture).
-- **Raw conversation messages** — local database.
-- **Embeddings / vector store** — local vector database. Embeddings generated by local model, stored locally, searched locally. Nothing leaves the device.
-- **Working memory profile** — local database (structured data, not vectors).
-- **Observational memory logs** — local database (compressed summaries) + local vector store (embedded for semantic search).
+#### Context Card
 
-No memory data leaves the device unless a query requires cloud inference — in which case only the assembled context for that specific query is sent transiently (zero-retention providers), not the full memory store.
+The Context Card shows what you're working on right now — a quick-glance summary in the sidesheet.
 
-**Context management:**
+**What it shows:**
 
-When combined memory exceeds the model's context limit, memory processors filter, trim, and prioritize. Priority order: (1) current conversation history, (2) working memory profile, (3) semantically recalled past context, (4) observational summaries. Trimmed content is not deleted — it remains in the vector store and can be retrieved by future queries. The user never needs to think about token limits.
+- What you're working on right now (active app, active document, active meeting).
+- How long you've been in this context.
+- Relevant suggestions ("You have a meeting in 15 minutes" / "3 unread Slack messages in #engineering").
 
-**Privacy:** All memory is on-device. Users can view, edit, or delete any memory layer. Working memory profile is fully transparent — you can see exactly what the AI "thinks" it knows about you and correct it. Observational memory logs are viewable. Delete = gone — no hidden copies, no cloud backup.
+**What it does NOT show:**
+
+- "Focus score" with a gamified number.
+- "Distractions" count.
+- "Productive vs unproductive" categorization.
+- Anything that frames the worker as a subject of measurement.
+
+The distinction matters: "You've been in VS Code for 2 hours working on the auth module" is useful context. "Your focus score is 87, you're in the top 10%" is gamified surveillance. We do the first one.
+
+#### Privacy
+
+All context data is on-device. Users can view, edit, or delete any captured data or memory. Delete = gone — no hidden copies, no cloud backup.
 
 ---
 
@@ -394,6 +377,7 @@ Getting the positioning right matters. Cowork.ai is not:
 
 | Date | Changes |
 |------|---------|
+| 2026-02-16 | Major restructure per CEO feedback on PR #6. Six features: Apps (with App Gallery), MCP Integrations, Chat (merges On-Demand Chat + Proactive Suggestions), MCP Browser (merges Execution Viewer + Execution Modes), Automations (new), Context (merges Activity Capture + Context Card + user-facing Memory summary). Technical memory architecture moved to llm-architecture.md. |
 | 2026-02-13 | Added features 5–6: On-Demand Chat (zero-context conversational interface, chat → action bridge, entry point from Proactive Suggestions) and Memory (four-layer system — conversation history, working memory, semantic recall via RAG, observational memory — covering both activity capture data and conversations). Updated Privacy section with memory data types. |
 | 2026-02-13 | Added fourth feature: Proactive Suggestions — native macOS notifications triggered by activity patterns, incoming signals, time-based context, state transitions, and thresholds. Includes throttling model (priority tiers, hourly caps, flow-state suppression, dismissal learning, bundling). Platform-level only. |
 | 2026-02-13 | Scoped down to three core features: App Ecosystem, Execution Modes, Activity Capture. Removed Approval Queue, Clone Mode, Task Automation, Live Agent, Context Card, Autonomy Levels, User Stories. |

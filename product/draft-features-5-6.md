@@ -1,6 +1,6 @@
 # Draft: Features 5 & 6 — On-Demand Chat + Memory
 
-**Status:** Merged into product-features.md
+**Status:** Superseded — content restructured across product-features.md and llm-architecture.md per CEO feedback on PR #6.
 **Date:** 2026-02-13
 **Note:** This file preserves the brainstorm context. The canonical version is in `product-features.md`.
 

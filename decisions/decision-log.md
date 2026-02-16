@@ -203,6 +203,32 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
+## 2026-02-16 — Product features restructured from 6 → 6 (different 6)
+
+**Changed:** Rewrote `product/product-features.md` to align with the design system and CEO feedback on PR #6. Moved technical memory architecture to `architecture/llm-architecture.md`. Updated `product/product-overview.md` to reflect new feature names and fix stale Electron/Tauri reference.
+
+**From → To:**
+
+| # | Before | After |
+|---|--------|-------|
+| 1 | App Ecosystem | Apps (includes App Gallery) |
+| 2 | Execution Modes | MCP Integrations (new — split from App Ecosystem + Tools & Connections from design system) |
+| 3 | Activity Capture & Context Engine | Chat (merges On-Demand Chat + Proactive Suggestions) |
+| 4 | Proactive Suggestions | MCP Browser (merges Execution Viewer from App Ecosystem + Execution Modes) |
+| 5 | On-Demand Chat | Automations (new — from design system) |
+| 6 | Memory | Context (merges Activity Capture + Context Card from design system + user-facing Memory summary) |
+
+**Why:**
+1. CEO (Scott) reviewed PR #6 and identified that the previous feature list conflated Apps and MCP Integrations, was missing 5 features from the design system (App Gallery, MCP Browser, Automations, Tools & Connections, Context Card), and had overly technical Memory content that belongs in the architecture doc.
+2. The feature set now maps to how users think about the product, not how the engineering is structured. Apps are what you install. MCP Integrations are what you connect. Chat is how you talk to the AI. MCP Browser is how you watch it work. Automations are rules that run without you. Context is what the AI knows about you.
+3. Memory's four-layer model, data pipeline, and RAG flow are engineering internals — moved to llm-architecture.md where they belong. Product-features.md retains a user-facing summary ("the AI remembers your past conversations, preferences, how you communicate").
+
+**Cost impact:** None. This is a documentation restructure, not a technical change.
+
+**Approved by:** Scott
+
+---
+
 ## 2026-02-12 — Added product overview, rewrote README
 
 **Changed:** Created `product/product-overview.md` and rewrote `README.md` to lead with what Cowork.ai is before explaining the repo structure.
