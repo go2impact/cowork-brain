@@ -204,3 +204,25 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **What we intentionally excluded (per issue discussion):** Detailed user personas, acceptance criteria, sprint roadmaps, competitive analysis matrices. Those are product management process artifacts — they belong in Linear/GitHub Issues, not in the decision layer. Cowork-brain captures reasoning, not execution tracking.
 
 **Approved by:** Scott
+
+---
+
+## 2026-02-15 — README rewrite: ecosystem and rake framing
+
+**Changed:** Rewrote README to frame Cowork.ai around the ecosystem Go2 already owns and the rake on token pass-through, not around building an AI agent.
+
+**From → To:** README opened with "desktop AI agent for remote workers" and led with the technical product (local model, MCP). → README opens with the market opportunity (workers nobody else is building for), adds an explicit Business Model section (5.5% rake on cloud token pass-through), and positions the AI capabilities as the mechanism, not the differentiator.
+
+**Why:**
+1. The first version put Cowork.ai in the "AI agent" lane — same positioning as OpenAI, Anthropic, and every other company with 100x more resources building agent frameworks. That's a fight we lose.
+2. The actual advantage is the ecosystem: 2M+ verified worker profiles, thousands of small business clients, hardware specs on file, zero CAC. Nobody else has this distribution in this market.
+3. The business model is a rake on inference, not building or hosting models. That needed to be stated explicitly — the first README never mentioned how we make money.
+4. "Why Now" section now ends with "these are enablers, not differentiators" — MCP, local models, and cost collapse are available to everyone. Owning the ecosystem where they get used is not.
+
+**What stayed:** Trust Paradox section (unchanged — it's the strongest insight in the repo), The One Rule, repo guide structure, Current State table with clickable links.
+
+**What was added:** The Opportunity section (market framing), The Business Model section (tier table + 5.5% rake), small business clients as a distribution asset.
+
+**What was removed:** "What Does NOT Live Here" section (defensive, unnecessary — The One Rule already covers scope).
+
+**Approved by:** Scott
