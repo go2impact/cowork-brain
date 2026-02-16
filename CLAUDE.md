@@ -29,7 +29,10 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 - `repos.md` — Map of all Cowork.ai repos (app code lives elsewhere)
 - `product/` — What Cowork.ai is, who it's for, roadmap. **Start here if new.**
   - `product-features.md` — Detailed feature set and capability map across all phases
-- `architecture/` — Engineering specs: models, routing, budgets, hardware (Rustan's reference)
+- `architecture/` — Engineering specs: system architecture, LLM stack, apps runtime (Rustan's reference)
+- `research/` — Open-source app analysis
+  - `deep-dives/` — Reverse-engineering of reference apps (AIME Chat, Jan, LobeChat, etc.)
+  - `adaptation-guides/` — Copy/adapt/skip decisions per reference app
 - `strategy/` — Cost models, pricing tiers, conversion economics (Scott's reference)
 - `design/` — M3 design system, three-state interaction model, prototype brief. **Read before touching any UI code.**
 - `gtm/` — Distribution channels, phased rollout, Go2 asset leverage
@@ -41,6 +44,7 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 ## Key Technical Context
 
 - **Database:** libsql for everything — capture data + Mastra agent memory + vector search in one `.db` file (see decisions/DATABASE_STACK_RESEARCH.md)
+- **AI SDK:** Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) — interface contract between agents and providers, and between main process and React frontend
 - **Agent orchestration:** Mastra.ai via `@mastra/libsql`, runs in Electron utility process
 - **Electron version:** 37.1.0 (Node 22.16.0) — existing codebase baseline
 - **Local brain:** DeepSeek-R1-Distill-Qwen-8B (4-bit, Ollama) — handles ~70% of daily work, free

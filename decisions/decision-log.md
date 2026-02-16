@@ -335,3 +335,90 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **What was removed:** "What Does NOT Live Here" section (defensive, unnecessary — The One Rule already covers scope).
 
 **Approved by:** Scott
+
+---
+
+## 2026-02-16 — AI SDK version: v6 (not v5)
+
+**Changed:** Decided to start on Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) instead of matching the AIME Chat reference app's v5 (`ai` ^5.0.93).
+
+**From → To:** Open question (v5 for reference compatibility vs v6 for current) → AI SDK v6.
+
+**Why:**
+1. Mastra 1.0+ supports both v5 and v6 natively. `@mastra/core` v1.4.0 bundles both `@ai-sdk/provider-v5` and `@ai-sdk/provider-v6` via npm aliasing. There is no Mastra constraint blocking v6.
+2. The breaking changes are mechanical renames (`CoreMessage` → `ModelMessage`, `textEmbeddingModel()` → `embeddingModel()`, `@ai-sdk/react` v2 → v3, tool helper name swaps) with an automated codemod (`npx @ai-sdk/codemod v6`). They are not architectural.
+3. The patterns we're copying from AIME Chat — custom `ChatTransport<UIMessage>`, Zod-validated chunk protocol, `useChat()` hook, `tool()` + Zod schemas — are stable across both versions. Same architecture, different type names.
+4. Mastra hides the AI SDK version on the backend (agent orchestration, tools, embeddings all go through Mastra APIs), but `@ai-sdk/react` is a direct frontend dependency — our `IpcChatTransport` implements AI SDK's interface directly, not through Mastra. Starting on v6 avoids an eventual migration of this frontend layer.
+5. v6 shipped Dec 22, 2025 and is at 6.0.86 (stable). Starting on v5 means adopting a one-major-version-behind dependency from day one.
+
+**Cost impact:** None. Both versions are open source. Avoids future migration cost.
+
+**Alternatives considered:**
+- Start on v5 to copy AIME Chat code verbatim: We're adapting patterns, not copying files. The renames are trivial. Rejected — starting behind guarantees a migration later.
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Startup failure policy: degraded boot with timeout
+
+**Changed:** Defined explicit startup failure behavior. Main process no longer blocks indefinitely waiting for utility processes — it times out after 10s and launches the renderer in degraded mode.
+
+**From → To:** Implicit all-or-nothing boot (if Agents fails to start, app appears dead) → Timeout + degraded mode (UI always launches, broken services shown as disabled with retry).
+
+**Why:**
+1. The Agents & RAG Utility is the riskiest startup component — DB init, provider registry, Mastra, MCP connections, embedding queue. If any step fails, the current architecture blocks the renderer forever.
+2. Mastra-in-utility-process is still unproven (Open Question #1). A failed PoC attempt would leave the app unlaunchable during development.
+3. Desktop apps must always show UI. A user who double-clicks the app and sees nothing will assume it's broken and uninstall. Degraded mode with a clear banner ("Agent features unavailable — reconnecting...") sets expectations correctly.
+4. Service health IPC channels (`system:health`, `system:retry`) enable the renderer to react to state changes without polling.
+
+**Cost impact:** None. Pure architecture improvement.
+
+**Alternatives considered:**
+- No timeout, rely on process auto-restart only: Still blocks renderer. Rejected — user sees nothing while retries happen.
+- Launch renderer immediately (before utilities): Renderer would show empty state for all features during normal startup too. Rejected — unnecessary flash of disabled UI on happy path.
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-17 — MCP credentials: Keychain-backed storage (replaces plaintext)
+
+**Changed:** OAuth tokens and API keys for MCP server connections stored in macOS Keychain via `keytar` instead of plaintext JSON files on disk.
+
+**From → To:** `{userData}/.mcp/{serverUrlHash}_tokens.json` (plaintext, readable by any process with file access) → macOS Keychain entries keyed by `cowork-mcp-{serverUrlHash}` (encrypted at rest, OS-managed access control). Non-secret metadata (server URL, scopes, expiry) remains in JSON file.
+
+**Why:**
+1. OAuth tokens for Zendesk, Gmail, Slack are high-value credentials. Plaintext files on disk are accessible to any app with read permissions — malware, other Electron apps, or even a `cat` command.
+2. macOS Keychain is the platform standard. Users expect desktop apps to use it. Safari, 1Password, Slack desktop all store credentials in Keychain.
+3. `keytar` is a proven N-API module that wraps Keychain on macOS (and Credential Vault on Windows for future cross-platform). Used by VS Code, GitHub Desktop, and Atom.
+4. The existing `OAuthClientProvider` from `@modelcontextprotocol/sdk` can be wrapped to read/write Keychain instead of files — the interface stays the same.
+
+**Cost impact:** Adds `keytar` as a native dependency (one more ASAR unpack entry). No runtime cost difference.
+
+**Alternatives considered:**
+- Encrypted file with app-generated key: Key must be stored somewhere — ends up in Keychain anyway, adding a layer of indirection for no benefit. Rejected.
+- electron safeStorage API: Encrypts with OS key but still writes to disk. Less standard than Keychain entries and harder to inspect/debug. Rejected — Keychain is the canonical macOS pattern.
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Context capture scope: screen recording deferred to v0.2
+
+**Changed:** Screen recording was removed from v0.1 Context capture scope and explicitly deferred to v0.2.
+
+**From → To:** v0.1 context defaults implied screen recording existed as opt-in stream (`Off (opt-in)`) → v0.1 has no screen recording stream; feature reserved for v0.2.
+
+**Why:**
+1. v0.1 is focused on the minimum stable sidecar loop (capture context, route/model decisions, MCP actions, proactive notifications). Screen recording adds media capture lifecycle complexity that is not required for v0.1 validation.
+2. Screen capture has a higher trust/privacy sensitivity than the other capture streams. Deferring it reduces risk in initial rollout while preserving the same non-surveillance posture.
+3. The architecture and product docs had diverged (one document marked screen capture not in v0.1 while another still listed it as active opt-in). Locking scope to v0.2 removes implementation ambiguity.
+
+**Cost impact:** Lowers v0.1 implementation and QA cost (no screen-capture pipeline, retention path, or UI consent flow in first release). Defers those costs to v0.2.
+
+**Alternatives considered:**
+- Keep screen recording in v0.1 as opt-in: rejected — expands surface area and privacy review burden in the first ship.
+- Remove screen recording entirely from roadmap: rejected — coached visible automation still benefits from optional screen context in later versions.
+
+**Approved by:** Rustan

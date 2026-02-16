@@ -13,8 +13,8 @@
 
 This document covers **user-facing features and capabilities**. The following are intentionally out of scope here — they live in the architecture and strategy docs:
 
-- **Local LLM / two-brain architecture** (local DeepSeek + cloud OpenRouter, complexity router, thermal management) → [llm-architecture.md](../architecture/llm-architecture.md)
-- **Billing, token budgets, and pricing tiers** (Cowork Credits, free tier quota, spend caps, BYOK) → [llm-architecture.md](../architecture/llm-architecture.md) and [llm-strategy.md](../strategy/llm-strategy.md)
+- **LLM execution architecture** (inference stack and thermal management) → [llm-architecture.md](../architecture/llm-architecture.md)
+- **Billing and budget controls** (Cowork Credits, quotas, spend caps, BYOK) → [llm-architecture.md](../architecture/llm-architecture.md) and [llm-strategy.md](../strategy/llm-strategy.md)
 - **Memory architecture** (four-layer model, data pipeline, RAG retrieval flow, context management) → [llm-architecture.md](../architecture/llm-architecture.md)
 
 ---
@@ -29,7 +29,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 **Works inside your tools, not instead of them.** You still use Zendesk, Gmail, Slack. The sidecar sits on top of them (via API) and operates inside them (via browser). Apps built in Google AI Studio are uploaded to the desktop app and given access to your work context through platform-provided MCPs.
 
-**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it — local-first, with cloud inference only when needed (zero-retention providers).
+**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it while keeping your context anchored on-device.
 
 **Pushes and pulls.** The platform comes to you when something is worth your attention (Chat — proactive notifications). You come to it when you have a question (Chat — on-demand conversation). Both paths lead to action.
 
@@ -48,7 +48,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 | 3 | [**Chat**](#3-chat) | Two interaction modes: on-demand conversation (you ask, the AI already knows your context) and proactive notifications (the platform surfaces what matters). Both lead to action. |
 | 4 | [**MCP Browser**](#4-mcp-browser) | Watch the AI work in real time. See every tool call, every browser action, every outcome. Approval gates for sensitive actions. The trust mechanism that enables autonomy. |
 | 5 | [**Automations**](#5-automations) | Rules and workflows that run without intervention. Time-based, event-based, and activity-pattern triggers. Logged and auditable. |
-| 6 | [**Context**](#6-context) | Ambient awareness: six input streams capture what you're working on. The AI remembers your past conversations, preferences, and how you communicate — all on-device. Context Card shows your current state at a glance. |
+| 6 | [**Context**](#6-context) | Ambient awareness: five active input streams in v0.1 capture what you're working on (screen recording is v0.2). The AI remembers your past conversations, preferences, and how you communicate — all on-device. Context Card shows your current state at a glance. |
 
 
 ---
@@ -59,7 +59,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Google AI Studio is the on-ramp: someone who's never built an MCP server can use a Cowork template and have a working app in minutes. Those apps have access to platform-provided MCPs, which are connected to data from the Context engine — giving apps access to work context, activity history, and connected service data.
 
-**Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, routing (local vs. cloud brain), budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
+**Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
 
 Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
@@ -233,13 +233,13 @@ Agents use custom tools to execute tasks through two paths:
 
 **Key principle:** Agents choose the right path for each step. The user configures which path applies per app, per category, or per action — and can override on any individual item.
 
-**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to apps via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (local vs. cloud brain, MCP vs. browser) with full safety rails. Apps never invoke agents directly.
+**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to apps via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (MCP path, browser path, or both) with full safety rails. Apps never invoke agents directly.
 
 ---
 
 ### 5. Automations
 
-Rules and workflows that run without user intervention. Automations trigger across both Apps and MCP Integrations — any action available to the platform agent can be automated. Set up recurring or trigger-based tasks so the AI handles routine work automatically.
+Rules and workflows that run without user intervention for routine steps. Automations trigger across both Apps and MCP Integrations — any action available to the platform agent can be automated. Safety rails still apply: destructive actions (deleting tickets, sending emails) and money actions require approval even inside an automation. The automation handles everything up to the gate, then notifies the user for the final call.
 
 **Examples:**
 
@@ -266,7 +266,7 @@ Context is the AI's ambient awareness — what you're working on, what it rememb
 
 #### What the AI observes
 
-Six input streams provide the AI with work context:
+Five input streams in v0.1 provide the AI with work context. Screen recording is deferred to v0.2:
 
 | Stream | Default | Used for |
 |--------|---------|----------|
@@ -274,16 +274,16 @@ Six input streams provide the AI with work context:
 | **Keystroke & input capture** (raw input → communication patterns) | Off (opt-in) | Communication pattern extraction |
 | **Focus detection** (extended single-app sessions, derived from window tracking) | On | Flow-state detection |
 | **Browser activity** (pages visited, actions taken during agent sessions) | On during sessions | MCP Browser, audit trail |
-| **Screen recording** (15fps during coached agent sessions) | Off (opt-in) | Agent coaching |
+| **Screen recording** (15fps during coached agent sessions) | Not in v0.1 (v0.2) | Agent coaching (v0.2) |
 | **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
 
 **Data flow:** Raw capture → local SQLite (libsql, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
 
-**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser/screen recordings roll X days. Retention enforcement not yet implemented.
+**Retention:** Window/app tracking and focus detection roll X days. Keystroke patterns and browser session data roll X days. Retention enforcement not yet implemented.
 
 #### What the AI remembers
 
-The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — stored on-device, with cloud inference using zero-retention providers when the local brain can't handle a task. Past conversations, working preferences, communication patterns, and activity history are embedded and indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
+The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — stored on-device and continuously indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
 
 For the full technical architecture (four-layer memory model, data pipeline, RAG retrieval flow), see [Memory Architecture](../architecture/llm-architecture.md#embeddings-local-rag--memory-architecture).
 
@@ -331,7 +331,7 @@ Cowork.ai observes your work context to be useful. That observation has to be cl
 
 ### What the AI never collects
 
-- **Continuous screen recording** — screen capture is opt-in, agent-session-only, not ambient surveillance.
+- **Continuous screen recording** — not in v0.1. If introduced in v0.2, screen capture remains opt-in, agent-session-only, not ambient surveillance.
 - **Keystroke data for employer reporting** — keystroke capture trains your AI, never reported to anyone else. Never leaves device.
 - **Full page content outside agent sessions** — activity context captures window titles and URLs for work context, not page content or DOM data. General browsing is not indexed.
 - **Idle/active time** — no attendance monitoring. Activity context is for flow-state detection only.
@@ -377,6 +377,7 @@ Getting the positioning right matters. Cowork.ai is not:
 
 | Date | Changes |
 |------|---------|
+| 2026-02-17 | Clarified Context scope for v0.1: screen recording moved out of v0.1 and reserved for v0.2. Updated “What the AI observes” defaults, retention text, and “What the AI never collects” wording to reflect no screen capture in v0.1. |
 | 2026-02-16 | Major restructure per CEO feedback on PR #6. Six features: Apps (with App Gallery), MCP Integrations, Chat (merges On-Demand Chat + Proactive Suggestions), MCP Browser (merges Execution Viewer + Execution Modes), Automations (new), Context (merges Activity Capture + Context Card + user-facing Memory summary). Technical memory architecture moved to llm-architecture.md. |
 | 2026-02-13 | Added features 5–6: On-Demand Chat (zero-context conversational interface, chat → action bridge, entry point from Proactive Suggestions) and Memory (four-layer system — conversation history, working memory, semantic recall via RAG, observational memory — covering both activity capture data and conversations). Updated Privacy section with memory data types. |
 | 2026-02-13 | Added fourth feature: Proactive Suggestions — native macOS notifications triggered by activity patterns, incoming signals, time-based context, state transitions, and thresholds. Includes throttling model (priority tiers, hourly caps, flow-state suppression, dismissal learning, bundling). Platform-level only. |

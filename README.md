@@ -109,8 +109,13 @@ Cowork.ai sits at the intersection of model selection, cost economics, and distr
 ├── product/                   ← Start here
 │   └── product-overview.md    ← What it is, who it's for, how it relates to Go2
 │
-├── architecture/              ← Models, routing, budgets, hardware, infra
+├── architecture/              ← System architecture, LLM stack, apps runtime
+│   ├── system-architecture.md
 │   └── llm-architecture.md
+│
+├── research/                  ← Open-source app analysis
+│   ├── deep-dives/            ← Reverse-engineering of reference apps
+│   └── adaptation-guides/     ← Copy/adapt/skip decisions per app
 │
 ├── strategy/                  ← Pricing, cost-to-serve, tiers, worker ROI
 │   └── llm-strategy.md
