@@ -161,13 +161,13 @@ AIME doesn't use these — they do structured output via Zod tool schemas instea
 
 AIME has UI for entering API keys, selecting models per provider, toggling providers on/off. Users directly choose which model to use.
 
-**Why skip:** Cowork.ai abstracts this entirely. Users pick a tier (Free / Boost / Pro / Max), and the complexity router picks the model. Local users don't configure Ollama through UI — the app manages the local brain automatically. The only provider-level config is the OpenRouter API key (entered once at onboarding for paid tiers).
+**Why skip:** Cowork.ai abstracts this entirely. Users pick a tier (Free / Boost / Pro / Max), and the complexity router picks the model. Local users don't configure Ollama through UI — the app manages the local brain automatically. The only keys users enter are: Gemini API key (free tier, entered at onboarding) and OpenRouter API key (paid tiers). No model selection, no provider toggling.
 
 #### `ProvidersManager` pattern
 
 AIME's custom provider registry that resolves `"providerId/modelId"` → `LanguageModelV2`. It manages multiple providers with different API keys, health states, model lists.
 
-**Why skip:** We have exactly two providers: Ollama (local, no key) and OpenRouter (cloud, one key). The complexity router handles selection. We don't need a generic provider registry — just two hardcoded paths with a routing decision in front.
+**Why skip:** We have three providers — Ollama (local, no key), Gemini direct (free tier, one key), and OpenRouter (paid tiers, one key) — managed via AI SDK's `createProviderRegistry()` (see [Section 5](#5-ai-provider-support)). That's a three-line registry, not a custom base class. We don't need a generic provider manager with health checking, model list fetching, and credit balance tracking for three known providers.
 
 #### Dead `generateText()` imports
 
@@ -474,7 +474,7 @@ The Express HTTP server pattern doesn't transfer. Our apps run inside the Electr
 1. IPC bridge in preload script (app calls `window.cowork.mcp.callTool()`)
 2. Local HTTP server like AIME (app uses standard MCP HTTP client)
 
-Option 1 is more secure (no network exposure) but requires custom transport. Option 2 reuses AIME's pattern but opens a port. This is open question #3 in [system-architecture.md — Open Architecture Questions](./system-architecture.md#open-architecture-questions).
+Option 1 is more secure (no network exposure) but requires custom transport. Option 2 reuses AIME's pattern but opens a port. This is open question #7 in [system-architecture.md — Open Architecture Questions](./system-architecture.md#open-architecture-questions).
 
 #### Tool discovery and build flow
 
@@ -644,7 +644,7 @@ AIME exposes 14+ providers to users — OpenAI, DeepSeek, Google, Ollama, LMStud
 | Provider | Adapter | Use case |
 |---|---|---|
 | **Ollama** | `@ai-sdk/openai-compatible` | Local brain (DeepSeek-R1-8B). Free, instant, on-device. |
-| **Gemini direct** | `@ai-sdk/google` | Free tier default + dev mode. Native Google API, just a Gemini API key. No OpenRouter middleman. |
+| **Gemini direct** | `@ai-sdk/google` | Free tier + development default. Native Google API, just a Gemini API key. No OpenRouter middleman. |
 | **OpenRouter** | `@ai-sdk/openai-compatible` | Paid tiers (Boost → Gemini 3 Flash, Pro → Sonnet 4.5, Max → Opus 4.6). |
 
 Gemini 2.5 Flash direct is the key addition — it's free via Google's API with generous rate limits, making it the natural default for the free cloud tier and for development. AIME already does this: their `GoogleProvider` wraps `@ai-sdk/google` natively.

@@ -13,8 +13,8 @@
 
 This document covers **user-facing features and capabilities**. The following are intentionally out of scope here — they live in the architecture and strategy docs:
 
-- **Local LLM / two-brain architecture** (local DeepSeek + cloud OpenRouter, complexity router, thermal management) → [llm-architecture.md](../architecture/llm-architecture.md)
-- **Billing, token budgets, and pricing tiers** (Cowork Credits, free tier quota, spend caps, BYOK) → [llm-architecture.md](../architecture/llm-architecture.md) and [llm-strategy.md](../strategy/llm-strategy.md)
+- **LLM execution architecture** (inference stack and thermal management) → [llm-architecture.md](../architecture/llm-architecture.md)
+- **Billing and budget controls** (Cowork Credits, quotas, spend caps, BYOK) → [llm-architecture.md](../architecture/llm-architecture.md) and [llm-strategy.md](../strategy/llm-strategy.md)
 - **Memory architecture** (four-layer model, data pipeline, RAG retrieval flow, context management) → [llm-architecture.md](../architecture/llm-architecture.md)
 
 ---
@@ -29,7 +29,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 **Works inside your tools, not instead of them.** You still use Zendesk, Gmail, Slack. The sidecar sits on top of them (via API) and operates inside them (via browser). Apps built in Google AI Studio are uploaded to the desktop app and given access to your work context through platform-provided MCPs.
 
-**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it — local-first, with cloud inference only when needed (zero-retention providers).
+**Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it while keeping your context anchored on-device.
 
 **Pushes and pulls.** The platform comes to you when something is worth your attention (Chat — proactive notifications). You come to it when you have a question (Chat — on-demand conversation). Both paths lead to action.
 
@@ -59,7 +59,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Google AI Studio is the on-ramp: someone who's never built an MCP server can use a Cowork template and have a working app in minutes. Those apps have access to platform-provided MCPs, which are connected to data from the Context engine — giving apps access to work context, activity history, and connected service data.
 
-**Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, routing (local vs. cloud brain), budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
+**Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
 
 Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
@@ -233,13 +233,13 @@ Agents use custom tools to execute tasks through two paths:
 
 **Key principle:** Agents choose the right path for each step. The user configures which path applies per app, per category, or per action — and can override on any individual item.
 
-**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to apps via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (local vs. cloud brain, MCP vs. browser) with full safety rails. Apps never invoke agents directly.
+**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to apps via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (MCP path, browser path, or both) with full safety rails. Apps never invoke agents directly.
 
 ---
 
 ### 5. Automations
 
-Rules and workflows that run without user intervention. Automations trigger across both Apps and MCP Integrations — any action available to the platform agent can be automated. Set up recurring or trigger-based tasks so the AI handles routine work automatically.
+Rules and workflows that run without user intervention for routine steps. Automations trigger across both Apps and MCP Integrations — any action available to the platform agent can be automated. Safety rails still apply: destructive actions (deleting tickets, sending emails) and money actions require approval even inside an automation. The automation handles everything up to the gate, then notifies the user for the final call.
 
 **Examples:**
 
@@ -283,7 +283,7 @@ Six input streams provide the AI with work context:
 
 #### What the AI remembers
 
-The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — stored on-device, with cloud inference using zero-retention providers when the local brain can't handle a task. Past conversations, working preferences, communication patterns, and activity history are embedded and indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
+The AI remembers your past conversations, your preferences, how you communicate, and what you've been working on. It gets smarter the longer you use it — stored on-device and continuously indexed so the AI can recall relevant context when you ask a question or when it generates a suggestion.
 
 For the full technical architecture (four-layer memory model, data pipeline, RAG retrieval flow), see [Memory Architecture](../architecture/llm-architecture.md#embeddings-local-rag--memory-architecture).
 

@@ -70,10 +70,10 @@ Five processes. Each has a single responsibility. If one crashes, the others sur
 | **Main** | App lifecycle, system tray, IPC routing between all other processes. Thermal monitoring (`ProcessInfo.thermalState`). Notification dispatch to macOS. | Always | App-fatal (but does no heavy work, so shouldn't crash) |
 | **Capture Utility** | Runs native capture addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`). Buffers events. Flushes to libsql. | Always | Auto-restarts via Electron. UI and agents unaffected. |
 | **Agents & RAG Utility** | Mastra.ai agent orchestration. Embedding generation (Qwen3-Embedding-0.6B via Ollama). Vector search. MCP server connections. Complexity router. Cloud inference (Gemini direct + OpenRouter). | Always | Auto-restarts via Electron. Capture and UI unaffected. |
-
-> **Mastra in utility process is the target architecture, not yet proven.** Each component works individually (aime-chat proves Mastra+Electron; @electron/llm proves LLM streaming in utility processes), but no one has run the full Mastra stack in an Electron utility process. A proof-of-concept spike is required before committing. Fallback options: main process (accept crash risk) or separate server process (HTTP overhead). See [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md).
 | **Renderer** | All UI. Fully sandboxed — no Node.js access. Communicates exclusively via IPC. | Always | Can reload without affecting capture or agents. |
 | **Playwright Child** | Browser automation for MCP Browser feature. Spawns its own Chromium instances. | On demand | Kill and respawn. No impact on anything else. |
+
+> **Mastra in utility process is the target architecture, not yet proven.** Each component works individually (aime-chat proves Mastra+Electron; @electron/llm proves LLM streaming in utility processes), but no one has run the full Mastra stack in an Electron utility process. A proof-of-concept spike is required before committing. Fallback options: main process (accept crash risk) or separate server process (HTTP overhead). See [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md).
 
 **Why multi-process:** Native C++ addons can segfault. Embedding generation is CPU-heavy. Playwright can hang. None of these should freeze the UI or kill the app. Electron's built-in IPC connects all processes — no custom serialization protocol, no HTTP hop.
 
@@ -379,11 +379,11 @@ Two brains. A local one (free, instant) and a cloud one (smarter, metered). User
 
 ### Cloud Brain
 
-Three providers managed via AI SDK's `createProviderRegistry()`:
+All three providers (Ollama above + two cloud providers below) managed via AI SDK's `createProviderRegistry()`:
 
 | Provider | Adapter | Role |
 |---|---|---|
-| **Gemini direct** | `@ai-sdk/google` | Free tier — Gemini API key only, no OpenRouter middleman |
+| **Gemini direct** | `@ai-sdk/google` | Free tier + development default — Gemini API key only, no OpenRouter middleman |
 | **OpenRouter** | `@ai-sdk/openai-compatible` | Paid tiers — single gateway to multiple providers |
 
 | Tier | Model | Provider |
@@ -588,7 +588,52 @@ starting ──→ running ──→ stopped (user toggled off)
 | Task chain > 5 minutes | Check-in: "Still working on X?" |
 | Error rate > 50% in chain | Abort, show error summary |
 
-All actions logged with undo window (default 5 min). Destructive actions always confirm first time. Money actions always require explicit approval.
+All actions logged with undo window (default 5 min). Destructive actions always confirm first time. Money actions always require explicit approval. These rails apply to all execution paths — including automations. An automation runs its routine steps unattended but pauses at approval gates and notifies the user.
+
+### Proactive Notifications
+
+The platform watches captured activity and connected service signals, then surfaces native macOS notifications when something is worth acting on. See [product-features.md — Proactive notifications](../product/product-features.md#proactive-notifications) for trigger types, throttling rules, and UX behavior.
+
+**Trigger detection** runs in the Agents & RAG utility process on a polling loop:
+
+```
+Agents & RAG Utility (polling loop, configurable interval)
+    │
+    ├── Query capture data from cowork.db
+    │   └── Activity patterns (same app >10min, state transitions, focus sessions)
+    │
+    ├── Poll connected MCP services
+    │   └── Incoming signals (new tickets, unread emails, calendar proximity)
+    │
+    └── Check time-based conditions
+        └── Scheduled triggers, meeting proximity from calendar MCP
+    │
+    ▼
+Throttling engine (in-memory + cowork.db)
+    │
+    ├── Priority tier check (urgent / helpful / informational)
+    ├── Hourly cap check per tier
+    ├── Flow-state suppression (query capture data for deep work signal)
+    ├── Dismissal history check (cowork.db — deprioritize repeatedly dismissed triggers)
+    ├── Bundling buffer (hold 30s, merge related notifications)
+    └── Cooldown check (recent dismissal of same trigger type)
+    │
+    ▼ passes all gates
+    │
+IPC to Main → Main dispatches via Electron Notification API → macOS
+```
+
+**Process boundaries:**
+
+| Step | Process | How |
+|---|---|---|
+| Trigger detection + throttling | Agents & RAG Utility | Polling loop queries cowork.db (capture data) + MCP services. Throttling state: delivery counts and cooldowns in-memory, dismissal history in cowork.db. |
+| Notification dispatch | Main | Receives notification payload via IPC from Agents. Creates `Notification` via Electron API. No logic — just dispatch. |
+| User response | Main → Agents & RAG / Renderer | **Accept** → Main routes to Agents → Agents begins execution (MCP/Browser path). **Dismiss** → Main routes to Agents → Agents logs dismissal to cowork.db. **Expand** → Main focuses Renderer → creates chat thread with pre-loaded context. |
+
+**Flow-state suppression:** Capture data already tracks extended single-app sessions (focus detection stream, ON by default). The trigger engine queries this before dispatching non-urgent notifications. If the user is in a deep work session, helpful and informational notifications are held in a queue and released on the next context switch.
+
+**Dismissal learning:** Each dismissal is logged to cowork.db with the trigger type. The trigger engine checks dismissal frequency when evaluating whether to surface a notification — consistently dismissed trigger types get deprioritized over time.
 
 ---
 
@@ -601,7 +646,7 @@ How each product feature maps to the underlying infrastructure:
 | **Apps** | Renderer + Agents & RAG | Apps rendered in renderer. Apps access platform via MCP tools (agent-as-tool pattern). App Gallery in renderer. |
 | **MCP Integrations** | Agents & RAG | MCP SDK manages connections. Health monitoring. OAuth. |
 | **Chat** (on-demand) | Renderer → Main → Agents & RAG | User message → IPC → complexity router → local/cloud brain → RAG context assembly → response → IPC → renderer |
-| **Chat** (proactive) | Agents & RAG → Main → macOS | Agent detects trigger → main dispatches native notification → user accepts → execution via MCP/Browser |
+| **Chat** (proactive) | Agents & RAG → Main → macOS | Trigger engine polls capture data + MCP services → throttling gates → main dispatches macOS notification → user accepts/dismisses/expands. See [Proactive Notifications](#proactive-notifications). |
 | **MCP Browser** | Renderer + Agents & RAG + Playwright | Execution log in renderer. Agent sends commands to Playwright child. Live browser view streamed to renderer. Approval gates. |
 | **Automations** | Agents & RAG | Trigger engine (time/event/activity-pattern). Runs agent tasks. Logs to cowork.db. |
 | **Context** | Capture Utility → cowork.db → Agents & RAG → Renderer | Six input streams captured → stored → embedded → queryable via RAG → Context Card in renderer. |
@@ -718,6 +763,7 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 | 4 | **Bundle ID rename** — existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar? | Affects signing, notarization, and auto-updater. |
 | 5 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
 | 6 | **IPC contract** — typed channel definitions not yet designed. | Blocks inter-process communication implementation. |
+| 7 | **App-to-platform MCP transport** — how do third-party apps (rendered in Electron) access platform MCP tools? IPC bridge in preload (more secure, custom transport) vs. local HTTP server (reuses standard MCP client, opens a port). | Affects Apps feature security model and implementation. |
 
 ---
 
