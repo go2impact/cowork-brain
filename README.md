@@ -1,26 +1,53 @@
 # Cowork.ai
 
-**An AI agent that lives on your desktop, runs a local model, and works inside your actual tools.**
+**AI-powered work tools for the workers nobody else is building for — distributed through an ecosystem we already own.**
 
 ---
 
-## The Problem
+## The Opportunity
 
-Every AI tool for knowledge workers does the same thing: you paste context into a chat window, get text back, copy it into the app you were already using. The AI doesn't know what you're working on. It can't touch your tools. It generates text — it doesn't do work.
+There are tens of millions of remote workers — virtual assistants, support agents, account managers — doing repetitive knowledge work across Zendesk, Gmail, Slack, and CRMs. They do the same 15 tasks 200 times a day. AI could handle most of it.
 
-Remote workers — the people doing support tickets, inbox triage, CRM updates, Slack management — do the same 15 tasks 200 times a day. They don't need a better chatbot. They need something that sits next to them, understands the work, and handles the repetitive parts.
+But nobody is building AI tools for these workers. OpenAI and Anthropic sell to developers and enterprises. Microsoft sells to Fortune 500 IT departments. The tools that do target remote workers are employer-owned surveillance platforms that workers resist and game.
 
-## What Cowork.ai Actually Is
+Meanwhile, Go2 has spent 8 years building an ecosystem in exactly this market: 2M+ verified remote worker profiles, thousands of small business clients, 250K LinkedIn followers, 1,000+ new applicants per day. We know these workers by name, by hardware spec, by which tools they use at work.
 
-A desktop sidecar that runs alongside your work apps with two capabilities nothing else combines:
+Cowork.ai puts AI into the hands of workers who are already in our ecosystem — and takes a rake on every token they use.
 
-**1. It runs locally.** DeepSeek-R1 runs on your machine. No API calls, no per-token cost, no data leaving the device. Handles ~70% of daily work — drafting ticket responses, summarizing threads, triaging inboxes — at zero operating cost. Cloud models (up to Claude Opus 4.6) are available when the task demands it.
+---
 
-**2. It connects to your real tools through MCP.** Model Context Protocol gives the agent standardized access to Zendesk, Gmail, Slack, Salesforce, Calendar — not through screenshots or copy-paste, but through actual tool calls. It reads your ticket queue, drafts a response, and posts it. It summarizes your unread Slack channels. It preps you for your next meeting using your calendar and CRM data.
+## What Cowork.ai Is
 
-The result: a worker using Cowork.ai handles more volume at higher quality without switching tabs, without copy-pasting, without the AI being a separate thing they go to.
+A desktop sidecar that runs alongside a worker's apps with two capabilities nothing else combines:
+
+**It runs locally.** DeepSeek-R1 runs on the worker's machine. No API calls, no per-token cost, no data leaving the device. Handles ~70% of daily work — drafting ticket responses, summarizing threads, triaging inboxes — at zero operating cost. Cloud models (up to Claude Opus 4.6) are there when the task demands it.
+
+**It connects to real tools through MCP.** Model Context Protocol gives the agent standardized access to Zendesk, Gmail, Slack, Salesforce, Calendar — not through screenshots or copy-paste, but through actual tool calls. It reads the ticket queue, drafts a response, and posts it. It summarizes unread Slack channels. It preps for the next meeting using calendar and CRM data.
+
+The result: a worker using Cowork.ai handles more volume at higher quality. They don't go to the AI — the AI is already inside their workflow.
 
 For the full product story — who it's for, the roadmap, how it relates to Go2 — read **[product/product-overview.md](product/product-overview.md)**.
+
+---
+
+## The Business Model
+
+Workers use Cowork.ai. Most daily work runs on the free local model. When they need more — larger context, harder reasoning, autonomous workflows — they upgrade to cloud tiers.
+
+Cloud usage routes through us. We take 5.5% on the pass-through. We don't build models. We don't compete with model companies. We sit between the worker and the inference provider, and we earn on volume.
+
+| Tier | Price | What They Get |
+|------|-------|--------------|
+| Free | $0 | Local model + 1 free week/month of cloud (Gemini 2.5 Flash) |
+| Boost | $5–15/mo | Full month cloud access, Gemini 3 Flash, 1M context |
+| Pro | $30–60/mo | Claude Sonnet 4.5, semi-autonomous workflows |
+| Max | $100–400/mo | Claude Opus 4.6, near-autonomous agent |
+
+The free tier proves undeniable value. The wall — hitting the weekly quota — is what converts. Target: >10% free-to-paid conversion vs 2–5% industry standard.
+
+Why the conversion rate is higher: see the next section.
+
+See **[strategy/llm-strategy.md](strategy/llm-strategy.md)** for full cost economics and worker ROI math.
 
 ---
 
@@ -32,9 +59,29 @@ Workers don't resist AI because they're afraid of technology. They resist it bec
 
 Go2 has 8 years of data on this. **When the employer owns the tool, 73% of workers resist it.** They minimize it, game the metrics, treat it as a threat. When the worker owns the tool — when it's theirs, running on their machine, with their data staying local — **92% opt in.** Same data. Same capabilities. Opposite outcome.
 
-Cowork.ai is worker-first by design, not by marketing. The local model means no data leaves the device unless the worker explicitly chooses cloud processing. The worker installs it. The worker controls it. The worker benefits from it — not because we say so, but because the architecture makes surveillance impossible by default.
+Cowork.ai is worker-first by architecture, not by marketing. The local model means no data leaves the device unless the worker explicitly chooses cloud processing. The worker installs it. The worker controls it. The worker benefits from it — not because we say so, but because the design makes surveillance structurally impossible.
 
-This isn't philosophy. It's the conversion mechanism. Worker ownership is why the free-to-paid conversion target is >10% vs the industry standard 2-5%.
+This isn't philosophy. It's the conversion mechanism.
+
+---
+
+## The Distribution Advantage
+
+Go2 spent 8 years building a staffing business. ~$2M in revenue, 1,000+ workers placed across 51 countries, $60M+ in total sales over the life of the company.
+
+The staffing business built assets that no AI startup can replicate:
+
+- **2M+ verified worker profiles** with full applications — CVs, hardware specs, tool proficiency, job history. Not scraped emails. Real workers who applied to work through Go2.
+- **Hardware data on file.** We know who has 16GB+ RAM and Apple Silicon. We know who can run local models and who needs cloud-only.
+- **Tool proficiency data.** We know who uses Zendesk vs Intercom vs Freshdesk. App recommendations come from actual work history.
+- **Thousands of small business clients** in the HubSpot pipeline. These businesses already buy remote labor through Go2. They're not on OpenAI's radar.
+- **250K LinkedIn followers** in the Filipino remote worker space. Organic distribution, not paid.
+- **1,000+ new applicants daily.** Continuous inflow. Not a one-time list.
+- **CAC is effectively zero.** The cost to reach the first 10,000 users is the cost of sending emails. Most AI startups spend $50–100 per user acquisition.
+
+The staffing business is the distribution channel. Cowork.ai is what it distributes.
+
+See **[gtm/launch-gtm-strategy.md](gtm/launch-gtm-strategy.md)** for the phased rollout plan.
 
 ---
 
@@ -42,32 +89,13 @@ This isn't philosophy. It's the conversion mechanism. Worker ownership is why th
 
 Three things converged simultaneously. None of them were true 90 days ago:
 
-**MCP became real.** AI agents can now connect to local tools (Slack, Gmail, Zendesk) through a standardized protocol instead of brittle, per-platform integrations. This is the difference between "AI that generates text" and "AI that does work."
+**MCP became real.** AI agents can connect to local tools through a standardized protocol instead of brittle, per-platform integrations. This is the difference between AI that generates text and AI that does work.
 
-**Local models crossed the reasoning threshold.** DeepSeek-R1 on consumer hardware can think through a CX ticket with contradictory information, draft a nuanced response, and explain its reasoning. Six months ago, local models were autocomplete.
+**Local models crossed the reasoning threshold.** DeepSeek-R1 on consumer hardware can reason through a CX ticket with contradictory information. Six months ago, local models were autocomplete.
 
-**Cloud inference costs collapsed 80%+.** Giving users a free work week of cloud AI costs ~$0.46/user/month. A year ago, that same experience cost $5-10/user. You couldn't afford to give it away. Now you can.
+**Cloud inference costs collapsed 80%+.** A free work week of cloud AI costs ~$0.46/user/month. A year ago, the same experience cost $5–10/user. You couldn't afford to give it away.
 
-The window is open but it won't stay open. Every major AI company is building agents. Distribution is the moat — and Go2 has it.
-
----
-
-## The Distribution Advantage
-
-Go2 is an 8-year-old subscription staffing company. ~$2M in revenue, 1,000+ workers placed across 51 countries, 250K LinkedIn followers in the Filipino remote worker space.
-
-More importantly: **2M+ verified remote worker profiles** with full applications — CVs, hardware specs, tool proficiency, job history. Not scraped emails. Not purchased lists. Real workers who applied to work through Go2.
-
-What that means for Cowork.ai:
-
-- **Hardware filtering.** We know who has 16GB+ RAM and Apple Silicon. We know who can run local models and who needs cloud-only. This is in the applicant data.
-- **Tool proficiency data.** We know who uses Zendesk vs Intercom vs Freshdesk. We know who lives in Slack vs Teams. App recommendations are informed by actual work history.
-- **CAC is effectively zero.** The cost to reach the first 10,000 users is the cost of sending emails. Most AI startups spend $50-100 per user acquisition. We already have the relationship.
-- **1,000+ new applicants daily.** Continuous inflow. Not a one-time list.
-
-Cowork.ai is Go2's intentional transition from a staffing business (managing people across 51 countries) to a software business (higher margin, more scalable). The staffing business becomes a distribution channel for the software business.
-
-See **[gtm/launch-gtm-strategy.md](gtm/launch-gtm-strategy.md)** for the phased rollout plan.
+These are enablers, not differentiators. Anyone can use MCP. Anyone can run DeepSeek. The differentiator is owning the ecosystem where these tools get used — and we already do.
 
 ---
 
@@ -75,7 +103,7 @@ See **[gtm/launch-gtm-strategy.md](gtm/launch-gtm-strategy.md)** for the phased 
 
 **The executive decision layer for Cowork.ai.** Not code, not tasks — the reasoning behind every technical, business, and distribution decision.
 
-Why a separate repo: Cowork.ai sits at the intersection of model selection, cost economics, and distribution strategy. Changing a model changes cost-to-serve. Changing cost-to-serve changes pricing. Changing pricing changes which GTM channels work. One decision ripples everywhere. This repo captures those decisions so anyone — builder, reviewer, AI tool — can understand the reasoning without starting from scratch.
+Cowork.ai sits at the intersection of model selection, cost economics, and distribution strategy. Changing a model changes cost-to-serve. Changing cost-to-serve changes pricing. Changing pricing changes which channels work. One decision ripples everywhere. This repo captures those decisions so anyone — builder, reviewer, AI tool — can understand the reasoning without starting from scratch.
 
 ```
 ├── product/                   ← Start here
