@@ -242,6 +242,37 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
+## 2026-02-16 — Desktop salvage strategy: fork and gut coworkai-desktop
+
+**Changed:** Established the migration strategy for moving from the existing `coworkai` monitoring platform to Cowork.ai Sidecar. Three independent analyses (Gemini CLI, Codex, Claude Opus) were synthesized into a single consensus plan.
+
+**From → To:**
+- Four active repos (`coworkai-desktop`, `coworkai-agent`, `coworkai-activity-capture`, `coworkai-keystroke-capture`) → Fork `coworkai-desktop` as new project base, archive the other three
+- Custom C++ native addons for capture → `uiohook-napi` + `active-win` + thin AppleScript wrapper (open-source equivalents that call the same OS APIs)
+- Tracking-oriented SQLite schema → New schema designed for context/memory/embeddings with `sqlite-vec`
+- Single-process main architecture → Multi-process isolation (capture utility, agents/RAG utility, Playwright child, sandboxed renderer)
+- `coworkai-agent` tracking engine → Mastra.ai agent orchestration (no salvage)
+
+**Why:**
+1. The packaging/signing/distribution infrastructure in `coworkai-desktop` represents weeks of work with zero user-facing value if rebuilt. Forking preserves it while gutting the monitoring-specific internals.
+2. Custom native addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`) call the same OS syscalls (`CGEventTap`, `SetWindowsHookExW`, `NSWorkspace`) as `uiohook-napi` and `active-win`. The custom code's 3-tier fallback robustness was built for employer monitoring accuracy — overkill for fuzzy AI context. Replacing them eliminates two repos and their prebuild/CI infrastructure.
+3. `coworkai-agent` is a tracking engine with no evolutionary path to an AI agent orchestrator. The timer module contradicts the product positioning ("not a time tracker"). The SQLite schema was designed for employer reporting, not AI retrieval. Archive, don't salvage.
+4. Three independent analyses converged on the same core decisions, differing mainly on native addon strategy (Gemini wanted to keep, Opus argued for replacement based on syscall-level comparison).
+
+**Cost impact:** None directly. Reduces long-term maintenance cost by eliminating two native addon repos and their prebuild CI pipelines.
+
+**Alternatives considered:**
+- Evolve in-place (Gemini): Risk of legacy contamination, unclear separation between old and new product shape. Rejected.
+- Fully new repo (Codex): Loses the packaging infrastructure bootstrapping benefit. Forking achieves the same clean separation while keeping the shell. Rejected.
+- Keep custom native addons (Gemini): Same OS APIs as open-source replacements, adds maintenance of two repos and per-platform CI for zero unique capability. Rejected.
+- Salvage `coworkai-agent` SQLite schema and timer (Gemini): Timer contradicts product direction. Schema needs fundamental redesign for embeddings and AI retrieval. Rejected.
+
+**Full writeup:** [`decisions/DESKTOP_SALVAGE_PLAN.md`](DESKTOP_SALVAGE_PLAN.md)
+
+**Approved by:** Rustan
+
+---
+
 ## 2026-02-12 — Added product overview, rewrote README
 
 **Changed:** Created `product/product-overview.md` and rewrote `README.md` to lead with what Cowork.ai is before explaining the repo structure.
