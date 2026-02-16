@@ -1,11 +1,11 @@
 # Cherry Studio → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [Cherry Studio deep-dive](../strategy/cherry-studio-deep-dive/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
+**Purpose:** Maps the key patterns from the [Cherry Studio deep-dive](../deep-dives/cherry-studio/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
 
 **Audience:** Engineering (Rustan + team)
 
-**Source material:** `strategy/cherry-studio-deep-dive/` (reverse-engineering of Cherry Studio's codebase)
-**Target architecture:** `architecture/system-architecture.md`
+**Source material:** `research/deep-dives/cherry-studio/` (reverse-engineering of Cherry Studio's codebase)
+**Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why Cherry Studio?** Cherry Studio fills gaps that aime-chat doesn't cover. It's Electron + Vite + AI SDK (same foundation), but has production patterns for: IPC observability, MCP tool aggregation, multi-window state sync, multi-model UX, and multi-entry Electron builds. These five patterns are directly relevant to Cowork.ai's architecture and don't exist in aime-chat.
 
@@ -76,13 +76,13 @@ What stays the same:
 - Last-argument convention — trace payload always appended last, stripped before handler.
 - Backward compatibility — calls without trace context work identically.
 
-**Reference:** [system-architecture.md — IPC Contract](./system-architecture.md#ipc-contract)
+**Reference:** [system-architecture.md — IPC Contract](../../architecture/system-architecture.md#ipc-contract)
 
 #### `IpcChannel` typed constants
 
 Cherry Studio defines all IPC channels in `packages/shared/IpcChannel.ts` — a single source of truth for channel names. Preload, main, and renderer all import from the same enum.
 
-We adopt this directly. Our `shared/` directory (see [system-architecture.md — Directory Structure](./system-architecture.md#directory-structure)) is the same location. Channel definitions live there alongside types and constants.
+We adopt this directly. Our `shared/` directory (see [system-architecture.md — Directory Structure](../../architecture/system-architecture.md#directory-structure)) is the same location. Channel definitions live there alongside types and constants.
 
 ### Adapt
 
@@ -214,11 +214,11 @@ Cherry Studio's `createInMemoryMCPServer(name)` instantiates built-in MCP server
 
 Cherry Studio's hub runs user-provided JavaScript in a worker thread with access to all tools via `mcp.callTool()`. This is powerful for LLM-driven orchestration but opens a wide attack surface.
 
-We skip this. Our agent orchestrates tool calls directly via Mastra's multi-step execution loop (see [aime-adaptation-guide.md — Section 1](./aime-adaptation-guide.md#1-mastra-agent-system)). No arbitrary code execution from external inputs.
+We skip this. Our agent orchestrates tool calls directly via Mastra's multi-step execution loop (see [AIME adaptation guide — Section 1](./aime.md#1-mastra-agent-system)). No arbitrary code execution from external inputs.
 
 #### Implicit trust for tool execution
 
-Cherry Studio has no per-tool policy gates — any active tool can be called by any LLM interaction. We require explicit approval for destructive actions and per-app scoping for third-party access (see [system-architecture.md — Safety Rails](./system-architecture.md#safety-rails)).
+Cherry Studio has no per-tool policy gates — any active tool can be called by any LLM interaction. We require explicit approval for destructive actions and per-app scoping for third-party access (see [system-architecture.md — Safety Rails](../../architecture/system-architecture.md#safety-rails)).
 
 ---
 
@@ -460,7 +460,7 @@ If the existing codebase already uses `electron-builder` + `webpack`, the migrat
 
 Cherry Studio's CSP headers include `'unsafe-eval'`, `'unsafe-inline'`, and wildcard connect-src. Their main window's `webPreferences` include `sandbox: false`, `webSecurity: false`, and `allowRunningInsecureContent: true` (though some auxiliary windows like selection toolbar do use `sandbox: true`).
 
-We skip the permissive settings. Our renderer runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` (see [system-architecture.md — Process Model](./system-architecture.md#process-model)). Security posture is non-negotiable for a desktop app with access to work services and activity data.
+We skip the permissive settings. Our renderer runs with `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true` (see [system-architecture.md — Process Model](../../architecture/system-architecture.md#process-model)). Security posture is non-negotiable for a desktop app with access to work services and activity data.
 
 ---
 

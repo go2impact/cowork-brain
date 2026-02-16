@@ -2,7 +2,7 @@
 
 [< Back to index](README.md)
 
-Side-by-side comparison of architectural decisions. AIME Chat is the existing reference implementation; Cowork.ai is our target architecture per [system-architecture.md](../../architecture/system-architecture.md).
+Side-by-side comparison of architectural decisions. AIME Chat is the existing reference implementation; Cowork.ai is our target architecture per [system-architecture.md](../../../architecture/system-architecture.md).
 
 ## Process Model
 
@@ -88,7 +88,7 @@ AIME CHAT (monolithic)                    COWORK.AI (multi-process)
 
 1. **IPC patterns translate, process boundaries don't.** Their `BaseManager` + `@channel` pattern is clean, but every manager lives in main. We need to adapt: some managers in Capture Utility, some in Agents & RAG Utility, communication via Electron `MessagePort`.
 
-2. **Their Mastra integration validates ours.** They prove Mastra + libsql + Electron works. Our additional bet is running it in a utility process (not yet proven — see [MASTRA_ELECTRON_VIABILITY.md](../../decisions/MASTRA_ELECTRON_VIABILITY.md)).
+2. **Their Mastra integration validates ours.** They prove Mastra + libsql + Electron works. Our additional bet is running it in a utility process (not yet proven — see [MASTRA_ELECTRON_VIABILITY.md](../../../decisions/MASTRA_ELECTRON_VIABILITY.md)).
 
 3. **Their DB approach is messier, ours is cleaner.** Two ORMs on one file is fragile. Our single-SDK approach (libsql for everything) avoids TypeORM's `synchronize: true` risks and double-locking concerns.
 

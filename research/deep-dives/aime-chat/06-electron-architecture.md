@@ -171,7 +171,7 @@ BaseManager.registerIpcChannels():
 
 | Action | Detail |
 |--------|--------|
-| **Copy pattern** | The `BaseManager` + `@channel` decorator pattern for IPC. Clean, type-safe, auto-registered. Saves boilerplate. **Adapt for our utility-process model** — their managers all live in main process; ours split across Main, Capture Utility, and Agents & RAG Utility (see [system-architecture.md](../../architecture/system-architecture.md#process-model)). |
+| **Copy pattern** | The `BaseManager` + `@channel` decorator pattern for IPC. Clean, type-safe, auto-registered. Saves boilerplate. **Adapt for our utility-process model** — their managers all live in main process; ours split across Main, Capture Utility, and Agents & RAG Utility (see [system-architecture.md](../../../architecture/system-architecture.md#process-model)). |
 | **Copy pattern** | Sequential manager initialization order with clear dependencies. Adapt for multi-process: each utility process has its own boot sequence. |
 | **Study** | Their single-file, two-access-pattern approach (TypeORM/better-sqlite3 + libsql both pointing at `main.db`). We chose to unify on libsql only — simpler, but their TypeORM layer adds auto-migration and entity relations we'll need to handle ourselves. |
 | **Study** | The preload script structure — 383 lines of typed IPC bindings organized by namespace. Good reference for our API surface. |

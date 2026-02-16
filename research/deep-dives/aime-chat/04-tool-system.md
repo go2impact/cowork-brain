@@ -4,7 +4,7 @@
 
 **Their claim:** "AI is not just for chatting, it can perform actual operations like file editing, code execution, web searching, and more"
 
-**Maps to Cowork.ai:** [MCP Browser](../../product/product-features.md#4-mcp-browser) — our execution paths (Agent → Tools → MCP and Agent → Tools → Browser). They have both paths too.
+**Maps to Cowork.ai:** [MCP Browser](../../../product/product-features.md#4-mcp-browser) — our execution paths (Agent → Tools → MCP and Agent → Tools → Browser). They have both paths too.
 
 ## How It Works
 

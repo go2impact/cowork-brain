@@ -1,11 +1,11 @@
 # Chatbox → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [Chatbox deep-dive](../strategy/chatbox-deep-dive/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
+**Purpose:** Maps the key patterns from the [Chatbox deep-dive](../deep-dives/chatbox/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
 
 **Audience:** Engineering (Rustan + team)
 
-**Source material:** `strategy/chatbox-deep-dive/` (reverse-engineering of Chatbox's codebase)
-**Target architecture:** `architecture/system-architecture.md`
+**Source material:** `research/deep-dives/chatbox/` (reverse-engineering of Chatbox's codebase)
+**Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why Chatbox?** Chatbox is the only repo in our competitive set that uses **Mastra LibSQLVector** (via `@mastra/libsql`) — the exact same vector storage stack we're building on. It also has production patterns for libsql in Electron (packaging, migration, corruption avoidance) and an MCP stdio-over-IPC bridge that solves a problem we'll face. These patterns don't exist in aime-chat or Cherry Studio.
 
@@ -62,7 +62,7 @@ What changes:
 - **Two processes write.** Chatbox has one writer (main process). We have two: the Capture Utility process (sync writes via `libsql`) and the Agents & RAG utility process (async writes via `@mastra/libsql`). WAL mode supports this — one writer at a time, readers don't block. But we must ensure each process has exactly one client. The capture process creates its own `libsql` Client (sync API for high-frequency writes). The agents process extracts from `LibSQLVector` (Chatbox's pattern).
 - **No `(vectorStore as any).turso` hack.** Chatbox reaches into a private field. We should check if Mastra exposes the client via a public API (e.g., `vectorStore.getClient()`). If not, we file an issue or wrap the access in a utility that's clearly marked as depending on Mastra internals.
 
-**Reference:** [system-architecture.md — Database Access Pattern](./system-architecture.md#database-access-pattern)
+**Reference:** [system-architecture.md — Database Access Pattern](../../architecture/system-architecture.md#database-access-pattern)
 
 #### Vector index per namespace
 
@@ -117,7 +117,7 @@ Chatbox's `readChunks()` function bypasses `LibSQLVector`'s query API and direct
 
 #### Separate KB database file
 
-Chatbox creates `chatbox_kb.db` as a separate database file from its main storage. We don't need this — `cowork.db` holds everything (see [system-architecture.md — Database Layer](./system-architecture.md#database-layer)). One file simplifies backup, migration, and atomic operations across tables.
+Chatbox creates `chatbox_kb.db` as a separate database file from its main storage. We don't need this — `cowork.db` holds everything (see [system-architecture.md — Database Layer](../../architecture/system-architecture.md#database-layer)). One file simplifies backup, migration, and atomic operations across tables.
 
 ---
 
@@ -274,7 +274,7 @@ async function initDB(db: Client) {
 
 **Why this works for Electron:** Desktop apps don't have a server-side migration runner. The app starts, runs `initDB()`, and all schema changes are applied idempotently. No migration version table, no rollback — just forward progress.
 
-We adopt this for `cowork.db`. Our schema is not finalized (see [system-architecture.md — Database Layer](./system-architecture.md#database-layer)), and the additive pattern lets us evolve it across app updates without a formal migration framework.
+We adopt this for `cowork.db`. Our schema is not finalized (see [system-architecture.md — Database Layer](../../architecture/system-architecture.md#database-layer)), and the additive pattern lets us evolve it across app updates without a formal migration framework.
 
 **What we add:**
 - **Column type validation.** Chatbox only checks for duplicate column names. We should also validate that existing columns have the expected type (e.g., if we change a column from TEXT to INTEGER in a future release, the additive pattern won't catch it).
@@ -398,7 +398,7 @@ execute: async (args, options) => {
 
 This prevents one failed tool call from aborting the entire agent stream. The LLM sees the error in the tool result and can decide what to do (retry, use a different tool, tell the user).
 
-We adopt this with one addition: our safety rails count consecutive tool errors. If a tool fails 3 times with the same input, we pause and surface the error to the user (see [system-architecture.md — Safety Rails](./system-architecture.md#safety-rails)).
+We adopt this with one addition: our safety rails count consecutive tool errors. If a tool fails 3 times with the same input, we pause and surface the error to the user (see [system-architecture.md — Safety Rails](../../architecture/system-architecture.md#safety-rails)).
 
 ### Study
 

@@ -4,7 +4,7 @@
 
 **Their claim:** "Built-in vector database with support for document retrieval and knowledge Q&A"
 
-**Maps to Cowork.ai:** [Context](../../product/product-features.md#6-context) — our ambient capture feeds embeddings; their KB is manual upload. Same vector infrastructure, different input source.
+**Maps to Cowork.ai:** [Context](../../../product/product-features.md#6-context) — our ambient capture feeds embeddings; their KB is manual upload. Same vector infrastructure, different input source.
 
 ## How It Works
 

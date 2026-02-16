@@ -4,7 +4,7 @@
 
 **Their claim:** "Support for MCP (Model Context Protocol) client with extensible tool capabilities"
 
-**Maps to Cowork.ai:** [MCP Integrations](../../product/product-features.md#2-mcp-integrations) — same protocol, but we also provide MCP servers to third-party apps (they don't).
+**Maps to Cowork.ai:** [MCP Integrations](../../../product/product-features.md#2-mcp-integrations) — same protocol, but we also provide MCP servers to third-party apps (they don't).
 
 ## How It Works
 

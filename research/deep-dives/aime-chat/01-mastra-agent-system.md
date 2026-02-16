@@ -4,7 +4,7 @@
 
 **Their claim:** "Powerful AI Agent system based on Mastra framework, supporting streaming responses and tool calling"
 
-**Maps to Cowork.ai:** [Chat](../../product/product-features.md#3-chat) + [MCP Browser](../../product/product-features.md#4-mcp-browser) — our agent orchestration layer powers both on-demand conversation and execution.
+**Maps to Cowork.ai:** [Chat](../../../product/product-features.md#3-chat) + [MCP Browser](../../../product/product-features.md#4-mcp-browser) — our agent orchestration layer powers both on-demand conversation and execution.
 
 ## How It Works
 

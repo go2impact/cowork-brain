@@ -7,7 +7,7 @@
 
 **Related open questions:**
 - [system-architecture.md — Open Question #3](./system-architecture.md#open-architecture-questions) (App Gallery hosting)
-- [aime-adaptation-guide.md — Section 3 & 4](./aime-adaptation-guide.md#3-mcp-integration) (MCP server role, Express HTTP skip)
+- [AIME adaptation guide — Section 3 & 4](../research/adaptation-guides/aime.md#3-mcp-integration) (MCP server role, Express HTTP skip)
 
 **Context:** [product-features.md — Apps](../product/product-features.md#1-apps) defines what Apps are. This doc explores how they might run.
 
@@ -585,7 +585,7 @@ Each app is a separate renderer process. Crash isolation: if an app crashes, the
 |---|---|
 | Apps feature definition | [product-features.md — Apps](../product/product-features.md#1-apps) |
 | System architecture & process model | [system-architecture.md](./system-architecture.md) |
-| AIME Chat MCP patterns | [aime-adaptation-guide.md — Section 3](./aime-adaptation-guide.md#3-mcp-integration) |
+| AIME Chat MCP patterns | [AIME adaptation guide — Section 3](../research/adaptation-guides/aime.md#3-mcp-integration) |
 | Existing Swift implementation | coworkai-mac-native-desktop (Features/Apps/) |
 
 ---
