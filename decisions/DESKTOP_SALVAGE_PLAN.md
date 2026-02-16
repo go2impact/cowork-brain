@@ -324,25 +324,36 @@ src/
 
 ### Phase 1B: Core Runtime Foundation (Next)
 
+Full sprint plan: [architecture/phase-1b-sprint-plan.md](../architecture/phase-1b-sprint-plan.md)
+
 - Gut `coworkai-desktop` and `coworkai-agent` in place
 - Create target folder architecture (`core/`, `electron/`, `renderer/`, `shared/`)
 - Define typed IPC contract and process boundaries
 - Stand up capture utility process with `coworkai-keystroke-capture` + `coworkai-activity-capture`
 - Move main process to coordinator-only role
 - Integrate `libsql` into local database with new schema (replaces `better-sqlite3` + `sqlite-vec`)
+- Stand up agents utility process with Mastra.ai runtime (spike proven — GO)
+- Basic chat with activity context (direct SQL, no embeddings)
+- Basic MCP connection (one server, API key auth, agent calls tools)
+- Basic apps runtime (sandboxed WebContentsView, template apps, platform SDK)
+- Renderer foundation: SideSheet + detail canvas, Chat/Context/Apps/Settings views
 
 ### Phase 2: Context + Data Layer
 
 - Normalize event schema for context streams
 - Implement local SQLite retention enforcement
 - Add embedding/vector storage pipeline
-- Expose context retrieval API to agents/chat
+- Full RAG retrieval (vector search, backfill, observation anchors)
+- Full complexity router (local/cloud brain routing logic)
+- Observational memory compression
 
-### Phase 3: MCP + Agent Runtime
+### Phase 3: MCP Advanced + Agent Runtime Hardening
 
-- Add MCP integration manager (connections, scopes, health)
-- Add Mastra.ai agent runtime orchestration (local/cloud routing)
+- OAuth MCP auth (Phase 1B uses API key auth only)
+- MCP advanced features: orphan cleanup, notification-driven invalidation, per-call abort
 - Add approval gate framework and execution audit model
+- Proactive notifications
+- `onMessage()` push channel from platform to apps
 
 ### Phase 4: MCP Browser + Automations
 
@@ -350,10 +361,10 @@ src/
 - Build unified execution timeline (MCP + browser + user interventions)
 - Implement automation trigger engine and run logs
 
-### Phase 5: Product Surfaces
+### Phase 5: Product Surfaces + App Ecosystem
 
-- Build SideSheet and detail canvas aligned to feature model
-- Implement Apps, Integrations, Chat, MCP Browser, Automations, Context UX
+- Full App Gallery UI
+- Generic AI Studio export support (Phase 1B supports template apps only)
 - Add privacy controls and per-stream consent surfaces
 - Finalize onboarding flow (hardware detection & brain choice)
 
@@ -374,15 +385,19 @@ src/
 
 ## Open Questions
 
-1. **Bundle ID rename** — Existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar?
+1. **Bundle ID rename** — Existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar? **Resolved:** No rename — keep `coworkai`. See [system-architecture.md v1.3.2](../architecture/system-architecture.md).
 2. **Electron version** — Existing uses Electron 37.1.0. Confirm target version.
 3. **Native module rebuild list** — Existing `forge.config.ts` rebuilds 6 native modules (includes video, audio, clipboard captures being killed). Trim to: `libsql`, `coworkai-keystroke-capture`, `coworkai-activity-capture`. Confirm no others needed.
-4. **MCP server packaging** — Bundled with the app, installed on demand, or running remotely?
-5. **App Gallery hosting** — Where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service?
+4. **MCP server packaging** — ~~Bundled with the app, installed on demand, or running remotely?~~ **Resolved:** Bundled — developers ship integrations, users connect. See [system-architecture.md v1.3.2](../architecture/system-architecture.md).
+5. **App Gallery hosting** — ~~Where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service?~~ **Resolved:** No hosted gallery for v0.1. Zip upload + local render. See [system-architecture.md v1.3.2](../architecture/system-architecture.md).
 
 ---
 
 ## Changelog
+
+**v7 (Feb 17, 2026):** Marked open questions #1, #4, #5 as resolved with cross-references to system-architecture.md v1.3.2.
+
+**v6 (Feb 17, 2026):** Updated phase definitions to reflect expanded Phase 1B scope from [phase-1b-sprint-plan.md](../architecture/phase-1b-sprint-plan.md). Phase 1B now includes agents utility process, basic chat, basic MCP connection, basic apps runtime, and renderer foundation (originally in Phases 3/5). Phases 2-5 updated to reflect what remains after Phase 1B acceleration. Added link to sprint plan from Phase 1B section.
 
 **v5 (Feb 16, 2026):** Added implementation status for completed `coworkai-desktop` gut pass (PR #8), including validated local build state. Documented explicit interim divergence from final salvage decisions and defined immediate next execution phase (Phase 1B) to re-integrate capture addons/orchestration and resume alignment with utility-process + `libsql` target architecture.
 

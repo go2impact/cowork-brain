@@ -382,23 +382,24 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ---
 
-## 2026-02-17 — MCP credentials: Keychain-backed storage (replaces plaintext)
+## 2026-02-17 — MCP credentials: Electron safeStorage (replaces plaintext) — updated from keytar
 
-**Changed:** OAuth tokens and API keys for MCP server connections stored in macOS Keychain via `keytar` instead of plaintext JSON files on disk.
+**Changed:** OAuth tokens and API keys for MCP server connections encrypted via Electron `safeStorage` API instead of plaintext JSON files on disk. Originally specified `keytar` — reversed to `safeStorage`.
 
-**From → To:** `{userData}/.mcp/{serverUrlHash}_tokens.json` (plaintext, readable by any process with file access) → macOS Keychain entries keyed by `cowork-mcp-{serverUrlHash}` (encrypted at rest, OS-managed access control). Non-secret metadata (server URL, scopes, expiry) remains in JSON file.
+**From → To:** `{userData}/.mcp/{serverUrlHash}_tokens.json` (plaintext) → encrypted via `safeStorage` API, persisted to `cowork.db` keyed by `cowork-mcp-{serverUrlHash}` (OS-backed encryption at rest). Non-secret metadata (server URL, scopes, expiry) remains in JSON file.
 
 **Why:**
-1. OAuth tokens for Zendesk, Gmail, Slack are high-value credentials. Plaintext files on disk are accessible to any app with read permissions — malware, other Electron apps, or even a `cat` command.
-2. macOS Keychain is the platform standard. Users expect desktop apps to use it. Safari, 1Password, Slack desktop all store credentials in Keychain.
-3. `keytar` is a proven N-API module that wraps Keychain on macOS (and Credential Vault on Windows for future cross-platform). Used by VS Code, GitHub Desktop, and Atom.
-4. The existing `OAuthClientProvider` from `@modelcontextprotocol/sdk` can be wrapped to read/write Keychain instead of files — the interface stays the same.
+1. OAuth tokens for Zendesk, Gmail, Slack are high-value credentials. Plaintext files on disk are accessible to any app with read permissions.
+2. `keytar` is deprecated and archived (since Dec 2022). No longer maintained. VS Code already migrated off it.
+3. Electron `safeStorage` API has been available since Electron 15 (Sep 2021). We're on Electron 37.1.0 — 22 major versions of stability. Uses macOS Keychain / Windows DPAPI under the hood.
+4. Zero additional native dependencies — `safeStorage` is built into Electron. Removes one ASAR unpack entry and one native rebuild from `forge.config.ts`.
+5. The `OAuthClientProvider` from `@modelcontextprotocol/sdk` can be wrapped to use `safeStorage.encryptString()` / `safeStorage.decryptString()` — the interface stays the same.
 
-**Cost impact:** Adds `keytar` as a native dependency (one more ASAR unpack entry). No runtime cost difference.
+**Cost impact:** Net negative — removes `keytar` native dependency, simplifies build pipeline.
 
 **Alternatives considered:**
-- Encrypted file with app-generated key: Key must be stored somewhere — ends up in Keychain anyway, adding a layer of indirection for no benefit. Rejected.
-- electron safeStorage API: Encrypts with OS key but still writes to disk. Less standard than Keychain entries and harder to inspect/debug. Rejected — Keychain is the canonical macOS pattern.
+- `keytar`: Original choice. Deprecated, archived, unmaintained since 2022. Would add unnecessary native binding. Reversed.
+- Encrypted file with app-generated key: Key must be stored somewhere — ends up using OS encryption anyway, adding a layer of indirection for no benefit. Rejected.
 
 **Approved by:** Rustan
 
