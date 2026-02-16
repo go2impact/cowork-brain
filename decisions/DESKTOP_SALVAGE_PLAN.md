@@ -25,6 +25,55 @@ Three independent salvage analyses were produced (Gemini CLI, Codex, Claude Opus
 
 ---
 
+## Implementation Status (As of February 16, 2026)
+
+### Completed in `coworkai-desktop` PR #8
+
+PR: https://github.com/go2impact/coworkai-desktop/pull/8
+
+- Removed blocked install dependencies:
+  - `@nut-tree/*` dev dependencies
+  - `@engineering-go2/coworkai-agent`
+- Gutted tracker/auth/agent wiring in desktop:
+  - removed `src/app/main/coworkai-agent/`
+  - removed auth + tracker IPC handlers and registration
+  - simplified main lifecycle/tray/power-monitor to sidecar shell behavior
+- Replaced main renderer with minimal placeholder shell and removed tracker/auth-dependent renderer surface.
+- Removed ffmpeg/video-copy init path (`scripts/copy-lib-bins.js` and related init step).
+- Local validation succeeded in `coworkai-desktop`:
+  - `npm install`
+  - `npx tsc --noEmit`
+  - `npm run rebuild`
+  - `npm start`
+
+### Interim Divergence (Explicit)
+
+PR #8 was a local-unblock gut pass, not full salvage completion. It intentionally diverges from final-state decisions in this document:
+
+- Capture addons are not yet re-integrated in desktop (`coworkai-activity-capture`, `coworkai-keystroke-capture`).
+- Capture orchestration from `coworkai-agent` has not yet been ported into the new utility-process architecture.
+- `libsql` migration is not yet started; desktop still rebuilds `better-sqlite3` in this interim state.
+- New typed sidecar IPC contract is not yet fully implemented.
+
+### Next Phase (Immediate): Phase 1B - Salvage Alignment
+
+1. Re-add direct desktop dependencies for:
+   - `@engineering-go2/coworkai-activity-capture`
+   - `@engineering-go2/coworkai-keystroke-capture`
+2. Update desktop forge config:
+   - rebuild list should include capture addons (and `libsql` once introduced)
+   - keep ASAR/native handling aligned for packaged loading
+3. Stand up capture utility process entrypoint in desktop (`electron/capture.worker.ts` equivalent target).
+4. Port orchestration logic from `coworkai-agent` into new core modules:
+   - activity capture loop
+   - keystroke chunking
+   - clipboard trigger behavior
+   - exclude timer/sync/employer auth paths
+5. Define and switch to new typed sidecar IPC contract for capture events and control.
+6. Begin `libsql` integration plan and schema design handoff from Decision #4.
+
+---
+
 ## Product Paradigm Shift
 
 This is not an incremental upgrade. The product direction reverses:
@@ -266,7 +315,14 @@ src/
 
 ## Execution Phases
 
-### Phase 1: Core Runtime Foundation
+### Phase 1A: Local Gut/Unblock (Completed)
+
+- Gut `coworkai-desktop` enough to restore local build/run loop
+- Remove blocked install dependencies and tracker/auth/agent runtime coupling
+- Replace renderer with minimal sidecar shell
+- Validate local commands (`npm install`, `tsc`, `rebuild`, `start`)
+
+### Phase 1B: Core Runtime Foundation (Next)
 
 - Gut `coworkai-desktop` and `coworkai-agent` in place
 - Create target folder architecture (`core/`, `electron/`, `renderer/`, `shared/`)
@@ -327,6 +383,8 @@ src/
 ---
 
 ## Changelog
+
+**v5 (Feb 16, 2026):** Added implementation status for completed `coworkai-desktop` gut pass (PR #8), including validated local build state. Documented explicit interim divergence from final salvage decisions and defined immediate next execution phase (Phase 1B) to re-integrate capture addons/orchestration and resume alignment with utility-process + `libsql` target architecture.
 
 **v4 (Feb 16, 2026):** Updated database stack from `better-sqlite3` + `sqlite-vec` to `libsql` for everything. One SDK for both capture data and Mastra agent memory. Built-in vector search eliminates sqlite-vec extension. Mastra runs in Agents & RAG utility process (Electron 37.1.0 ships Node 22.16.0, satisfying `@mastra/libsql` requirement). See [DATABASE_STACK_RESEARCH.md](./DATABASE_STACK_RESEARCH.md).
 

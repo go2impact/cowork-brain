@@ -1,20 +1,18 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.3.2 — February 17, 2026**
+**v1.4.1 — February 17, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
-**Open items (5 questions, 2 inline):**
+**Open items (3 questions, 2 inline):**
 
 | # | Question | Blocks v0.1? | What it takes to resolve |
 |---|---|---|---|
 | 1 | **Mastra in utility process** | Yes — everything depends on this | PoC spike: init Mastra + libsql in Electron utility process, run one agent call |
 | 2 | **Database schema** | Yes — can't write code without tables | Design from product-features.md: 5 capture streams, 4 memory layers, agent state |
 | 3 | **IPC contract** | Yes — can't wire processes | Full channel inventory + Zod schemas (patterns defined, channels not enumerated) |
-| 4 | **App-to-platform MCP transport** | No — Apps feature, not core loop | Binary decision: IPC bridge in preload vs local HTTP server |
-| 5 | **Refusal message exclusion** | No — edge case in RAG | Depends on Mastra's `lastMessages` metadata filtering support |
 
-Inline: **Mastra external client injection** (line 424, tied to Q#1 spike) · **Observer model choice** (line 602, needs benchmarking)
+Inline: **Mastra external client injection** (line 434, tied to Q#1 spike) · **Observer model choice** (line 612, needs benchmarking)
 
 **This doc consolidates decisions from:**
 - [DESKTOP_FRAMEWORK_DECISION.md](../decisions/DESKTOP_FRAMEWORK_DECISION.md) — why Electron, multi-process model
@@ -681,7 +679,7 @@ Two-checkpoint pattern prevents hallucination in grounded-query scenarios:
 
 **Checkpoint 2 — Embeddings exist but context assembly returned nothing:** If the full pipeline (anchors + buffer + vector search + backfill) produces zero context, return a refusal message.
 
-Refusal messages must be visible to the user but excluded from future context windows (prevents "I don't know" answers from polluting subsequent queries). The exclusion mechanism depends on whether Mastra's `lastMessages` supports metadata filtering — see Open Architecture Questions #9.
+Refusal messages must be visible to the user but excluded from future context windows (prevents "I don't know" answers from polluting subsequent queries). Solved via a custom Mastra `MemoryProcessor`: a `RefusalFilter` strips refusal messages from the context window before sending to the LLM, while leaving them in storage for UI display. Same pattern as Mastra's built-in `ToolCallFilter` processor.
 
 Applies to agents configured with grounded-query mode (e.g., capture summary agent). General chat agents skip refusal checkpoints and can respond using conversation history alone.
 
@@ -909,13 +907,129 @@ The Automations feature (product-features.md §5) uses a flow executor for seque
 
 ---
 
+## Apps Runtime
+
+Third-party apps (Google AI Studio exports) run inside the Electron shell. Each app is an isolated renderer process with no Node.js access. The runtime handles rendering, preprocessing, platform communication, and permissions. See [apps-runtime-architecture.md](./apps-runtime-architecture.md) for detailed research and options analysis.
+
+### Rendering
+
+Each installed app runs in its own `WebContentsView` — Electron's recommended primitive for isolated content (replaces deprecated `BrowserView`, avoids discouraged `<webview>` tag).
+
+| Setting | Value | Why |
+|---|---|---|
+| `contextIsolation` | `true` | Preload world separated from page world |
+| `sandbox` | `true` | OS-level process sandbox |
+| `nodeIntegration` | `false` | No `require()`, `process`, or `fs` |
+| `webviewTag` | `false` | Prevent nested webviews |
+| `partition` | `persist:app-${appId}` | Isolated cookies/storage per app |
+
+Navigation blocked (`will-navigate` → `preventDefault()`). `window.open()` blocked. Each app is a separate renderer process — if one crashes, main UI and other apps are unaffected.
+
+**File serving** — Custom `cowork-app://` protocol (registered as privileged scheme: `standard`, `secure`, `supportFetchAPI`). App loads as `cowork-app://{app-id}/index.html`. Path validation prevents directory traversal (`path.relative()` + prefix check).
+
+### Platform Communication (Decided)
+
+**Preload IPC relay** — same pattern as the main renderer's `window.cowork.*`:
+
+```
+App JS → window.cowork.callTool()
+  → preload (contextBridge) → ipcRenderer.invoke()
+  → main process relays to Agents & RAG utility
+  → result returns through same chain
+```
+
+MCP tool calls are infrequent (~seconds between calls). The main-process relay hop adds ~1ms — irrelevant at this frequency. No network exposure, no port, no auth tokens.
+
+### Platform SDK
+
+Apps see `window.cowork.*` injected via the app's preload script. **Apps never talk to MCP servers, LLMs, or external services directly** — every call goes through the platform via IPC, where it is permission-checked, routed, and executed by the Agents & RAG utility process.
+
+| Method | What it does |
+|---|---|
+| `listTools()` | Returns tools the app has permission to use (platform filters by grant) |
+| `callTool(name, args)` | Request the platform to execute an MCP tool on the app's behalf (permission-checked at preload, executed by Agents & RAG) |
+| `chat(message)` | Send a message to the platform agent — requires `permissions.agent: true` in manifest (preload-gated, same as `callTool`). Platform selects the model and manages API keys (app never sees them) |
+| `onMessage(callback)` | Subscribe to streaming agent responses |
+| `getAppConfig()` | App metadata, granted permissions, connected services |
+
+The SDK does NOT expose: raw MCP protocol, OAuth tokens, API keys, agent internals, other apps' data, or Node.js/Electron APIs. Apps are pure UI — the platform owns all service connections and model access.
+
+### Per-App Permissions
+
+Each app declares required tools in a manifest (our format — AI Studio has no manifest). Every `callTool()` is permission-checked at the preload layer **before** it ever reaches the platform:
+
+```
+App calls window.cowork.callTool('gmail_send_email', {...})
+  → preload: is 'gmail_send_email' in this app's granted tools? (checked against cowork.db)
+  → No → reject with PermissionDeniedError (never leaves the renderer process)
+  → Yes → ipcRenderer.invoke() → main → Agents & RAG utility executes the MCP call
+  → result returns through same IPC chain
+```
+
+Permission grants stored in `cowork.db`. Manifest apps get their declared permissions granted automatically at install — the user chose to install the app, that's the consent. No-manifest apps prompt the user to select permissions from available tools. Users can revoke any permission later in Settings. The app never holds credentials, never connects to services, and never knows which MCP server backs a given tool.
+
+### Two-Track App Strategy
+
+**Track 1 — Template apps (happy path):** We publish a Cowork.ai-compatible Google AI Studio template. Apps built from it are guaranteed to work. The template:
+- Uses `window.cowork.*` for all platform + AI calls (no direct Gemini API)
+- Includes `cowork.manifest.json` declaring required tools/permissions
+- Has a clean React structure that esbuild bundles without issues
+
+**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. No Gemini proxy — generic exports that call Gemini directly need to be adapted to use `window.cowork.chat()` per the guidelines.
+
+### Design Decisions (Resolved)
+
+| Question | Decision | Reasoning |
+|---|---|---|
+| Preprocessing pipeline | **esbuild bundle** | Fast (~10-100ms). Handles TSX/TS natively. Produces single output file that resolves all imports. Solves preprocessing + import resolution in one step. |
+| Gemini API proxy | **Not needed.** Template apps use `window.cowork.chat()` — platform handles model selection + API keys. Generic exports must adapt to use `window.cowork.chat()` per guidelines. | Eliminates an entire subsystem (protocol handler or Express proxy). Apps don't manage API keys or model selection — the platform does. |
+| Import resolution | **esbuild bundles deps** — no import maps needed. esbuild resolves bare specifiers during bundling. | Falls out of the esbuild decision. No runtime import resolution, no CDN dependency, works offline. |
+| Manifest authoring | **Template includes `cowork.manifest.json`.** Manifest permissions auto-granted at install. Generic exports without manifest: user selects permissions manually. | Template apps get frictionless install. Generic exports fall back to user-selected permissions. All permissions revocable in Settings. |
+
+### Installation Flow
+
+```
+User uploads .zip
+    ↓
+1. Extract to ~/Library/Application Support/cowork-ai/apps/{uuid}/
+    ↓
+2. Read cowork.manifest.json (if present) or package.json for metadata
+    ↓
+3. esbuild bundle: TSX/TS → single JS output, all deps resolved
+    ↓
+4. If esbuild fails → show error + link to compatibility guidelines
+    ↓
+5. Grant permissions: manifest present → auto-grant declared tools + agent access (unknown tool IDs ignored, re-evaluated when new MCP connections are added); no manifest → prompt user to select from available tools + "Allow agent chat" toggle
+    ↓
+6. Store app metadata + permissions in cowork.db (revocable in Settings)
+    ↓
+7. App appears in sidesheet
+```
+
+### cowork.manifest.json Format
+
+```json
+{
+  "name": "Zendesk Dashboard",
+  "description": "View and manage support tickets",
+  "permissions": {
+    "tools": ["zendesk_list_tickets", "zendesk_get_ticket", "zendesk_update_ticket"],
+    "agent": true
+  }
+}
+```
+
+Used at install time (manifest apps auto-grant declared tools + agent access; no-manifest apps prompt user selection) and runtime (preload checks every `callTool()` and `chat()` against granted permissions in `cowork.db`).
+
+---
+
 ## Feature → Infrastructure Map
 
 How each product feature maps to the underlying infrastructure:
 
 | Feature | Processes involved | Key infrastructure |
 |---|---|---|
-| **Apps** | Renderer + Agents & RAG | Apps rendered in renderer. Apps access platform via MCP tools (agent-as-tool pattern). v0.1: user uploads zip file, Cowork renders it locally. No hosted gallery. |
+| **Apps** | Renderer + Agents & RAG | Each app in its own `WebContentsView` (sandboxed renderer process). Platform communication via preload IPC relay. Per-app permissions enforced at preload layer. v0.1: user uploads zip file, Cowork renders it locally. No hosted gallery. See [Apps Runtime](#apps-runtime). |
 | **MCP Integrations** | Agents & RAG | MCP SDK manages connections. Health monitoring. OAuth. |
 | **Chat** (on-demand) | Renderer → Main → Agents & RAG | User message → IPC → complexity router → local/cloud brain → RAG context assembly → response → IPC → renderer |
 | **Proactive Notifications** | Agents & RAG → Main → macOS | Trigger engine polls capture data + MCP services → throttling gates → main dispatches macOS notification → user accepts/dismisses/expands. See [Proactive Notifications](#proactive-notifications). |
@@ -1064,14 +1178,15 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 | 1 | **Mastra in utility process** — needs proof-of-concept spike. Can `@mastra/core` + `@mastra/libsql` initialize and run agents in an Electron utility process? | Architecture of Agents & RAG process. Fallback: main process or separate server. |
 | 2 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
 | 3 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts`, `tracedInvoke` pattern for observability, `system:health` + `system:retry` channels for service health. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
-| 4 | **App-to-platform MCP transport** — how do third-party apps (rendered in Electron) access platform MCP tools? IPC bridge in preload (more secure, custom transport) vs. local HTTP server (reuses standard MCP client, opens a port). | Affects Apps feature security model and implementation. |
-| 5 | **Refusal message exclusion** — query refusal messages must be visible in the UI but excluded from Mastra's `lastMessages` context loading. Options: store refusals outside Mastra's message store (separate UI-only table), use Mastra metadata filtering if supported, or post-filter Mastra's context output. | Affects RAG query refusal implementation. |
 
 **Resolved:**
 - **MCP server packaging** → Bundled. Developers ship each integration with the app. Users connect, not install.
 - **App Gallery hosting** → No hosted gallery for v0.1. Users upload zip files, Cowork renders locally.
 - **Bundle ID rename** → No rename. Keep existing coworkai bundle ID.
 - **MCP install registry** → N/A. MCP servers are bundled, not user-installed. No registry needed.
+- **App-to-platform MCP transport** → Preload IPC relay. Apps call `window.cowork.*` → preload → `ipcRenderer.invoke()` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. No network exposure, no port, no auth tokens. MCP tool calls are infrequent (~seconds between calls) so the extra main-process relay hop (~1ms) is irrelevant.
+- **Refusal message exclusion** → Custom Mastra `MemoryProcessor`. A `RefusalFilter` processor strips refusal messages from the context window before sending to the LLM, while leaving them in storage for UI display. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface (same pattern as the built-in `ToolCallFilter`) runs after fetch and before LLM — exactly the right hook.
+- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). No Gemini proxy — apps use `window.cowork.chat()`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions at install time.
 
 ---
 
@@ -1083,6 +1198,7 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 | Product features & capabilities | [product-features.md](../product/product-features.md) |
 | Salvage plan & execution phases | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) |
 | Mastra + Electron viability research | [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md) |
+| Apps runtime research & options | [apps-runtime-architecture.md](./apps-runtime-architecture.md) |
 | Design system & interaction model | [design-system.md](../design/design-system.md) |
 | Cost models & pricing | [llm-strategy.md](../strategy/llm-strategy.md) |
 
@@ -1096,3 +1212,7 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 **v1.3 (Feb 17, 2026):** Integrated 5 remaining adaptation guides (Jan, Chatbox, LobeChat, AnythingLLM, Cherry Studio). Added: database hardening (single-client access, vector index namespacing, schema migration strategy), model lifecycle (preflight fit check, download integrity, path safety), embedding pipeline (resumable ingestion, batch checkpoints, crash recovery), RAG context assembly (multi-source priority order, fillSourceWindow backfill, query refusal), agent execution model (persistent operations, instruction executor, max-step safety), multi-phase tool approval policy (6-phase hierarchy, mixed execution, approval state), MCP enhancements (orphan cleanup, client cache with dedup, notification-driven invalidation, per-call abort, 7-step install state machine), IPC observability (tracedInvoke, 4-process waterfall, typed IpcChannel constants, trace storage), automations engine (flow executor, variable substitution, block types, flow-as-tool), build configuration (ASAR unpack, post-pack patching, process-specific aliases, chunk inlining), complexity router askId grouping, explicit hardware reserve breakdown.
 **v1.3.1 (Feb 17, 2026):** Normative behavior pass. Added: startup failure policy (timeout + degraded boot, service states, retry with backoff, degraded mode capabilities), service health IPC contract (`system:health` + `system:retry` channels), Keychain-backed MCP credential storage (replaces plaintext token files), crash-safe notification throttling (all counters persisted to cowork.db), PID-reuse safety for MCP orphan cleanup (executable path + argv hash identity check before kill). Review fixes: renamed "Chat (proactive)" to "Proactive Notifications", screen recording marked not-in-v0.1, MCPClient lifecycle added stopped→starting transition, Phase 2 renamed to "Mandatory approval tools", Phase 4 per-server policy defined, utility-to-utility DB-only communication documented, embedding model name normalized, DB access table updated to show both SDK layers, cross-references between Embedding Pipeline and RAG Context Assembly, flow-as-tool automation context clarified.
 **v1.3.2 (Feb 17, 2026):** Resolved 4 open questions. MCP servers are bundled (developers ship integrations, users connect) — replaced 7-step install state machine with 6-step connection flow. App Gallery: no hosted gallery for v0.1, zip upload + local render. Bundle ID: no rename, keep coworkai. MCP install registry: N/A (bundled servers, no user installation). Open questions reduced from 9 to 5.
+**v1.3.3 (Feb 17, 2026):** Resolved App-to-platform MCP transport question. Decision: preload IPC relay — apps use `window.cowork.*` → preload → main → Agents & RAG utility, same pattern as the main renderer. Local HTTP server ruled out (unnecessary attack surface; CVE-2025-49596 demonstrated the DNS rebinding risk class). MessagePort direct channel deferred — adds setup complexity for ~1ms savings on infrequent calls. Open questions reduced from 5 to 4. Fixed stale `#9` cross-reference to refusal message exclusion (now `#4`).
+**v1.3.4 (Feb 17, 2026):** Resolved refusal message exclusion question. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface solves it: a custom `RefusalFilter` processor strips refusal messages from context before sending to the LLM while leaving them in storage for UI display. Same pattern as Mastra's built-in `ToolCallFilter`. Updated Query Refusal section with resolved mechanism. Open questions reduced from 4 to 3.
+**v1.4 (Feb 17, 2026):** Added Apps Runtime section — was missing from the doc despite Apps being in v0.1 scope. Covers: WebContentsView rendering (sandboxed, partition-isolated, custom `cowork-app://` protocol), platform communication (preload IPC relay, decided), platform SDK API surface, per-app permission model. Added Q#4 (Apps runtime design) to open items — remaining decisions: preprocessing pipeline, Gemini API proxy, import resolution, manifest authoring. Updated Feature → Infrastructure Map with Apps Runtime cross-reference.
+**v1.4.1 (Feb 17, 2026):** Resolved all 4 Apps runtime design questions. Two-track strategy: template apps (Cowork.ai-published Google AI Studio template, guaranteed compatible) + generic AI Studio exports (best-effort esbuild bundling). esbuild handles preprocessing + import resolution in one step. No Gemini proxy — apps use `window.cowork.chat()`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions. Added installation flow (7 steps from zip upload to sidesheet). Removed Q#4 from open items. Open questions reduced from 4 to 3.
