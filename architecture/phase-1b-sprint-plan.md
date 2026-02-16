@@ -18,7 +18,7 @@ From [system-architecture.md](./system-architecture.md) — Phase 1B cannot ship
 | # | Question | Status | Resolution path |
 |---|---|---|---|
 | 1 | Mastra in utility process | **Resolved — GO** | All 7 spike steps passed (Feb 17). Utility process viable for Mastra + libsql + MessagePort streaming. See `coworkai-desktop/docs/plans/mastra-utility-process-viability-spike-result.md` |
-| 2 | Database schema | Not started | Design from [product-features.md](../product/product-features.md): 5 capture streams, 4 memory layers, agent state |
+| 2 | Database schema | **Resolved — Draft** | Full DDL, table ownership map, rationale, and TypeScript row types in [database-schema.md](./database-schema.md) |
 | 3 | IPC contract | **Resolved — Draft** | 34 channels, 9 namespaces, full Zod schemas. See [ipc-contract.md](./ipc-contract.md) |
 
 ---
@@ -108,11 +108,11 @@ The 7-step PoC from [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_
 
 ---
 
-### Sprint 1: Database Schema Design
+### Sprint 1 (Complete): Database Schema Design
 
 **Repo:** cowork-brain (design doc)
 **Blocks:** Sprint 4, Sprint 5
-**No blockers** — design task, can start immediately.
+**Result: DONE** — Draft schema document delivered at [database-schema.md](./database-schema.md).
 
 Design the new schema from [product-features.md](../product/product-features.md). Three ownership zones per [system-architecture.md § Database Hardening](./system-architecture.md#database-hardening):
 
@@ -466,8 +466,8 @@ Sprint 3: Folder Restructure ─────┤              │
                     Sprint 8: Basic Apps Runtime
 ```
 
-Sprints 0 and 3 are complete. Sprints 1-2 (design, in cowork-brain) have no blockers — start immediately.
-Sprints 4-5 are unblocked by Sprint 3 (pending Sprint 1+2 design output). Can run in parallel if there's a second pair of hands, otherwise sequential.
+Sprints 0, 1, and 3 are complete. Sprint 2 (IPC contract) is in draft and ready for implementation sync.
+Sprints 4-5 are unblocked by Sprint 3 + Sprint 1 (and Sprint 2 contract draft). Can run in parallel if there's a second pair of hands, otherwise sequential.
 Sprint 6 validates the core runtime. Sprint 7 adds external service connectivity. Sprint 8 adds the apps runtime.
 
 **Parallel track:** M3 component library built independently, integrated in Sprint 6.
@@ -497,6 +497,8 @@ Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, sto
 ---
 
 ## Changelog
+
+**v12 (Feb 17, 2026):** Marked Sprint 1 (Database Schema Design) as complete. Updated blocking-open-questions row #2 from "Not started" to "Resolved — Draft" with direct link to [database-schema.md](./database-schema.md). Updated dependency summary to reflect that Sprints 4-5 are now unblocked by completed Sprint 1 and drafted Sprint 2 contract.
 
 **v11 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `window.cowork.chat()` references to match product rule "Apps get tools, not agents." Sprint 8 now routes agent-style requests through `window.cowork.callTool('platform_chat', ...)` (agent-as-tool), and the request/response SDK list was updated accordingly.
 

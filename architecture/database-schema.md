@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v6 (reviewed) |
+| **Status** | Draft v7 (reviewed) |
 | **Last Updated** | 2026-02-17 |
 | **Owner** | Rustan |
 | **Sprint** | Phase 1B, Sprint 1 |
@@ -748,6 +748,8 @@ interface AppPermission {
 ---
 
 ## Changelog
+
+**v8 (Feb 17, 2026):** Final review pass. No schema/DDL changes required. Updated document status metadata from `Draft v6` to `Draft v7` to match the latest applied review version.
 
 **v7 (Feb 17, 2026):** Follow-up consistency pass. Tightened app permission model to match product-features.md's "Apps get tools, not agents" rule: removed `chat` as a first-class `permission_type` and documented agent access as a platform-provided MCP tool (`platform_chat`) under `tool` permissions. Updated DDL comments, rationale text, and TypeScript type union.
 
