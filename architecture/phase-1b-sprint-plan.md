@@ -173,7 +173,7 @@ Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Stru
 
 **Work:**
 
-1. **Create target directory structure:**
+1. **Create Phase 1B directory structure** (additional directories added in later phases as needed):
    ```
    src/core/{agents,automations,capture,chat,mcp,memory,store}/
    src/electron/{main.ts,preload.ts,capture.worker.ts,agents.worker.ts}

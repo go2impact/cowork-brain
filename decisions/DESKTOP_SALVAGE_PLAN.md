@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | Decision |
-| **Last Updated** | 2026-02-16 |
+| **Last Updated** | 2026-02-17 |
 | **Decision** | **Gut all four repos in place. Keep packaging, capture addons, and capture orchestration. Kill tracking-specific code.** |
 | **Related** | [DESKTOP_FRAMEWORK_DECISION.md](./DESKTOP_FRAMEWORK_DECISION.md), [product-features.md](../product/product-features.md) |
 | **Inputs** | Salvage plans from Gemini CLI, Codex, and Claude Opus — synthesized below |
@@ -203,7 +203,7 @@ The agent is the orchestrator that sits between `coworkai-desktop` and the nativ
 - No timer aggregation tables, no sync queue tables
 - Native Mastra integration via `@mastra/libsql` (Mastra runs in Agents & RAG utility process)
 
-> **Schema is not finalized.** The existing schema from [COWORKAI_TECHNICAL_REFERENCE.md](./COWORKAI_TECHNICAL_REFERENCE.md) documents the old tracking-oriented tables (`activities`, `keystrokes`, `clipboards`, `timelogs`). The new schema will be designed from scratch based on the feature set in [product-features.md](../product/product-features.md) — specifically the six input streams (Context), four memory layers (Memory Architecture), and Mastra agent state requirements. Do not assume the old schema carries over.
+> **Schema is not finalized.** The existing schema from [COWORKAI_TECHNICAL_REFERENCE.md](./COWORKAI_TECHNICAL_REFERENCE.md) documents the old tracking-oriented tables (`activities`, `keystrokes`, `clipboards`, `timelogs`). The new schema will be designed from scratch based on the feature set in [product-features.md](../product/product-features.md) — specifically the five input streams (Context) — screen recording deferred to v0.2, four memory layers (Memory Architecture), and Mastra agent state requirements. Do not assume the old schema carries over.
 
 ### 5. Multi-process architecture
 
@@ -386,14 +386,16 @@ Full sprint plan: [architecture/phase-1b-sprint-plan.md](../architecture/phase-1
 ## Open Questions
 
 1. **Bundle ID rename** — Existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar? **Resolved:** No rename — keep `coworkai`. See [system-architecture.md v1.3.2](../architecture/system-architecture.md).
-2. **Electron version** — Existing uses Electron 37.1.0. Confirm target version.
-3. **Native module rebuild list** — Existing `forge.config.ts` rebuilds 6 native modules (includes video, audio, clipboard captures being killed). Trim to: `libsql`, `coworkai-keystroke-capture`, `coworkai-activity-capture`. Confirm no others needed.
+2. **Electron version** — ~~Existing uses Electron 37.1.0. Confirm target version.~~ **Resolved:** Electron 37.1.0 (Node 22.16.0) confirmed as baseline. See [phase-1b-sprint-plan.md](../architecture/phase-1b-sprint-plan.md).
+3. **Native module rebuild list** — ~~Existing `forge.config.ts` rebuilds 6 native modules (includes video, audio, clipboard captures being killed). Trim to: `libsql`, `coworkai-keystroke-capture`, `coworkai-activity-capture`. Confirm no others needed.~~ **Resolved:** Sprint 3 adds `libsql`, Sprint 4 re-adds `coworkai-keystroke-capture` + `coworkai-activity-capture`. See [phase-1b-sprint-plan.md](../architecture/phase-1b-sprint-plan.md).
 4. **MCP server packaging** — ~~Bundled with the app, installed on demand, or running remotely?~~ **Resolved:** Bundled — developers ship integrations, users connect. See [system-architecture.md v1.3.2](../architecture/system-architecture.md).
 5. **App Gallery hosting** — ~~Where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service?~~ **Resolved:** No hosted gallery for v0.1. Zip upload + local render. See [system-architecture.md v1.3.2](../architecture/system-architecture.md).
 
 ---
 
 ## Changelog
+
+**v8 (Feb 17, 2026):** Marked open questions #2 and #3 as resolved with cross-references to phase-1b-sprint-plan.md. Fixed "six input streams" → "five" (screen recording deferred to v0.2). Updated header date.
 
 **v7 (Feb 17, 2026):** Marked open questions #1, #4, #5 as resolved with cross-references to system-architecture.md v1.3.2.
 

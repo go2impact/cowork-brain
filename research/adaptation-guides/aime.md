@@ -311,7 +311,7 @@ AIME lets users pick an agent from a dropdown (though only CodeAgent is visible)
 
 #### Express HTTP server for MCP bridge
 
-AIME runs an Express server on port 41100 inside the main process for MCP communication. We don't need this — our MCP connections are managed directly by the Agents & RAG utility process via `@mastra/mcp`. No HTTP server inside Electron.
+AIME runs an Express server on port 41100 inside the main process for MCP communication. We don't need this — our MCP connections are managed directly by the Agents & RAG utility process via `@modelcontextprotocol/sdk` (not `@mastra/mcp` — direct SDK for more control). No HTTP server inside Electron. See [phase-1b-sprint-plan.md Sprint 7](../../architecture/phase-1b-sprint-plan.md).
 
 #### Dead code (SkillCreator agent, dead `generateText` imports)
 
@@ -447,10 +447,11 @@ AIME stores OAuth credentials per MCP server in `{userData}/.mcp/`:
 
 Implements `OAuthClientProvider` from `@modelcontextprotocol/sdk/client/auth.js`. Opens browser for login, stores tokens locally.
 
-We need this for Zendesk, Gmail, and Slack — all require OAuth. The file-based storage pattern and PKCE flow transfer directly. What changes:
+We need this for Zendesk, Gmail, and Slack — all require OAuth. The PKCE flow transfers directly. What changes:
+- **Credential encryption:** We use Electron `safeStorage` API (macOS Keychain / Windows DPAPI) instead of AIME's plain-file storage. See [phase-1b-sprint-plan.md Sprint 7](../../architecture/phase-1b-sprint-plan.md).
 - **OAuth flow initiation:** AIME opens the system browser. We do the same — the renderer can't handle OAuth popups (sandboxed), so main opens the browser and captures the callback.
 - **Token refresh:** AIME's pattern handles access/refresh rotation. We need the same, plus detection of expired tokens that triggers a "reconnect" prompt in the UI.
-- **Credential location:** Same `{userData}/.mcp/` directory. Credentials stay on-device.
+- **OAuth is Phase 2+:** Phase 1B Sprint 7 uses API key auth only. Full OAuth flow comes later.
 
 ### Adapt
 
@@ -950,6 +951,8 @@ Worth evaluating for our M3 design system. M3 specifies motion tokens (duration,
 
 #### shadcn/ui (Radix primitives)
 
+> **Update (Feb 17, 2026):** Decision reversed — shadcn/ui + Radix primitives **adopted** with M3 token overrides. See [ui-component-task-brief.md](../../architecture/ui-component-task-brief.md) and [phase-1b-sprint-plan.md Sprint 6](../../architecture/phase-1b-sprint-plan.md). The reasoning below is the original Skip rationale, preserved for context.
+
 We're committed to M3 (Material Design 3). See [design-system.md](../../design/design-system.md). shadcn/ui is Radix-based — different component API, different design tokens, different visual language.
 
 The Radix accessibility primitives underneath are solid (proper ARIA, keyboard navigation, focus management), but M3 component libraries handle this too. No reason to mix design systems.
@@ -1086,9 +1089,9 @@ Worth understanding but not adopting for v0.1.
 | Python execution via `uv` + MCP bridge | [4](#4-tool-system) | If we ever add code execution for automations. |
 | Model capability metadata | [5](#5-ai-provider-support) | Static file vs. dynamic API. Small static config probably sufficient for our 3 providers. |
 | `TaskQueueManager` for background jobs | [6](#6-electron-architecture) | For embeddings, automations, batch MCP. May use Mastra workflows instead. |
-| Zustand for state management | [7](#7-ui--i18n) | Strong candidate. TBD decision. |
+| Zustand for state management | [7](#7-ui--i18n) | **Locked.** Zustand v5 adopted. See [phase-1b-sprint-plan.md Sprint 6](../../architecture/phase-1b-sprint-plan.md). |
 | Chat UI components (streaming, tool panels, reasoning) | [7](#7-ui--i18n) | Hard UI problems they've solved. Study rendering approach. |
-| Motion (Framer Motion) for animation | [7](#7-ui--i18n) | For M3 motion tokens. Evaluate vs. CSS-only. |
+| Motion (Framer Motion) for animation | [7](#7-ui--i18n) | **Locked.** Motion v12 adopted. See [ui-component-task-brief.md](../../architecture/ui-component-task-brief.md). |
 
 ### Skip (don't need)
 
@@ -1109,7 +1112,7 @@ Worth understanding but not adopting for v0.1.
 | Monolithic main process | [6](#6-electron-architecture) | Core architectural difference — we isolate. |
 | `synchronize: true` (TypeORM auto-migration) | [6](#6-electron-architecture) | Dangerous for production. Manual migrations. |
 | Dual DB access (TypeORM + libsql) | [6](#6-electron-architecture) | Unified on libsql. |
-| shadcn/ui | [7](#7-ui--i18n) | M3 design system. |
+| ~~shadcn/ui~~ | [7](#7-ui--i18n) | **Reversed — now Adapt.** shadcn/ui + Radix adopted with M3 token overrides. See [ui-component-task-brief.md](../../architecture/ui-component-task-brief.md). |
 | Sidebar + content layout | [7](#7-ui--i18n) | Three-state interaction model, not single-state. |
 | Excalidraw, tldraw, Recharts | [7](#7-ui--i18n) | Not in feature set. |
 | i18n | [7](#7-ui--i18n) | English-only for v0.1. |
@@ -1126,5 +1129,7 @@ Worth understanding but not adopting for v0.1.
 **v6 (Feb 17, 2026):** Section 5 (AI Provider Support) complete.
 **v7 (Feb 17, 2026):** Section 6 (Electron Architecture) complete.
 **v8 (Feb 17, 2026):** Section 7 (UI & i18n) complete.
+**v10 (Feb 17, 2026):** Cross-doc consistency fixes: shadcn/ui Skip→Adapt (reversed per ui-component-task-brief.md), Zustand/Motion Study→Locked, OAuth credential storage updated to safeStorage, MCP SDK corrected from @mastra/mcp to @modelcontextprotocol/sdk.
+
 **v9 (Feb 17, 2026):** Section 8 (Architecture Comparison) complete.
 **v10 (Feb 17, 2026):** Section 9 (Summary) complete. All sections done.
