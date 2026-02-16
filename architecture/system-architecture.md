@@ -1,6 +1,6 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.2 — February 17, 2026**
+**v1.3 — February 17, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
@@ -272,6 +272,16 @@ Where handlers register depends on the process:
 
 The renderer calls `window.cowork.namespace.method()` → preload routes through `ipcRenderer.invoke()` → main either handles directly or forwards to the appropriate utility process.
 
+### IPC Observability
+
+**tracedInvoke** — Wrapper around IPC that propagates OpenTelemetry span context across all 4 processes. The trace payload is appended as the last IPC argument and stripped before the handler sees it — business logic never knows about tracing. Backward compatible: calls without trace context work identically.
+
+**4-process waterfall** — A single user chat request produces a trace: `renderer.send` → `main.relay` → `agents.process` → `playwright.execute` (if browser action). Shows exactly where latency lives. Main process adds a relay span (`ipc.relay`) showing the routing hop.
+
+**IpcChannel typed constants** — All channel names defined in `src/shared/ipc-channels.ts`. Single source of truth imported by all processes. Prevents typos and enables refactoring with type safety.
+
+**Trace storage** — Spans stored in `cowork.db` (extends Mastra's `LibSQLStore` traces, same database). Used for: latency debugging across four processes, safety rail audit trails (every tool call logged with timing), and MCP Browser execution log (action timeline).
+
 ### Preload Namespace Design
 
 The preload script exposes `window.cowork.*` with scoped namespaces:
@@ -361,6 +371,22 @@ Reused from the existing codebase — proven buffer management and event chunkin
 
 **Schema is not finalized.** The new schema will be designed from [product-features.md](../product/product-features.md) — specifically the six input streams (Context), four memory layers, and Mastra agent state requirements. The old tracking-oriented schema does not carry over.
 
+### Database Hardening
+
+**Single-client access pattern** — Each process should use exactly one `@libsql/client` Client instance for all DB operations to prevent intra-process `SQLITE_BUSY` errors from multiple clients competing for write access. In the Agents & RAG utility process, the ideal approach is to create one client via the native libsql TypeScript SDK and inject it into both `LibSQLVector` and `LibSQLStore` — depends on whether Mastra accepts an external client (needs investigation). The Capture Utility process creates its own separate client (sync API for high-frequency writes). Cross-process write contention between Capture and Agents is handled by WAL's busy timeout.
+
+**Vector index namespacing** — Separate `LibSQLVector` indexes per data type:
+
+| Index | What it stores |
+|---|---|
+| `embed_activity` | Embedded window titles, URLs, app sessions |
+| `embed_conversation` | Embedded past conversations |
+| `embed_observation` | Embedded observational memory summaries |
+
+Separate indexes enable per-type queries (e.g., "find similar activity") or merged cross-type queries with different relevance weights. Same `LibSQLVector.createIndex()` API per index.
+
+**Schema migration strategy** — Additive `ALTER TABLE ADD COLUMN` with duplicate-column tolerance (try/catch, ignore "column already exists"). No version-tracked migration framework for v0.1. Per-process schema ownership: the Capture Utility process creates and migrates app tables (activities, input events, context streams); the Agents & RAG Utility process creates and migrates its own tables (embedding queue, agent operations, automations, mcp_servers, mcp_install_progress, tool_policies). Mastra manages `LibSQLStore` and `LibSQLVector` tables internally. Neither process ALTERs tables owned by the other.
+
 ---
 
 ## LLM Stack
@@ -427,6 +453,8 @@ Request arrives
     └── "Retry with smarter model? (~$X)" button on every response
 ```
 
+**askId grouping for "retry with smarter model"** — When the user clicks "Retry with smarter model", the new response shares `askId` with the original. The UI groups both responses for comparison (stacked: local response above, cloud response below). Sequential execution (local first, cloud on request), not parallel. Each retry shows cost estimate before execution. The `askId` group tracks cumulative cost for the entire retry chain.
+
 ### Embeddings
 
 | | |
@@ -449,6 +477,31 @@ Request arrives
 **Edge case:** If hardware can't run Whisper at all, cloud transcription is allowed only with explicit consent ("Audio will be sent to a cloud service. Your recordings will leave this device."). User must actively enable — never auto-enabled. Cloud-transcribed content is flagged in the activity store. See [llm-architecture.md](./llm-architecture.md#audio-never-leaves-the-device).
 
 **Hardware split on Apple Silicon:** Whisper on ANE and DeepSeek on GPU are separate silicon — they don't compete. User can be on a call (Whisper transcribing on ANE) while the agent drafts a response (DeepSeek generating on GPU).
+
+### Model Lifecycle
+
+Before loading a local model, the system runs a preflight check to prevent OOM crashes. Download integrity ensures model files aren't corrupted. Preflight checks (lightweight metadata reads) run in Main. Download + SHA256 hash validation (CPU/IO-heavy) run in the Agents & RAG utility process to respect Main's "no heavy work" constraint.
+
+**Preflight fit check** — RED/YELLOW/GREEN classification before model load:
+
+```
+Inputs:
+  total_required = model_size + kv_cache_size
+  usable_memory  = total_RAM - RESERVE_BYTES
+
+  RESERVE_BYTES ≈ 3 GB (OS baseline + our multi-process footprint, see Hardware Requirements)
+
+Classification (Apple Silicon unified memory):
+  RED    = total_required > usable_memory     → disable local brain, cloud-only
+  YELLOW = total_required > 80% usable_memory → warn: "Local brain may be slow"
+  GREEN  = total_required ≤ 80% usable_memory → enable local brain
+```
+
+**KV cache estimation** — Uses GGUF metadata (layer count, KV head count, key/value dimensions, context length) or Ollama API model info. Checks against our actual context budget (set by the complexity router), not the model's max context — this produces a smaller, more accurate estimate.
+
+**Download integrity** — Resumable downloads (`.tmp` + `.url` sidecar files), SHA256 validation (size-first O(1) check, hash-second O(n) check), per-task cancellation via `AbortController`. Applies to direct GGUF imports; Ollama manages its own downloads for `ollama pull`.
+
+**Path safety** — All download paths normalized via `path.resolve()` + prefix check against the Cowork data directory. Prevents path traversal from malicious manifests.
 
 ---
 
@@ -502,9 +555,99 @@ Storage backend: `LibSQLStore` + `LibSQLVector` from `@mastra/libsql`, both poin
 
 ---
 
+## Embedding Pipeline
+
+Raw data from the capture process and conversation history must be embedded before it's useful for RAG retrieval. The embedding pipeline runs in the Agents & RAG utility process, processing a continuous stream of data with full crash resilience.
+
+### Resumable Ingestion State Machine
+
+Each embedding job tracks its state explicitly:
+
+```
+pending → processing → done
+              │
+              ├──→ paused (crash recovery or thermal shutdown) → pending (auto-resume)
+              │
+              └──→ failed (timeout > 5 min, terminal)
+```
+
+Schema fields per embedding job: `embed_status`, `chunks_embedded` (progress checkpoint), `total_chunks`, `embed_started_at` (timeout detection), `embed_error`.
+
+### Batch Processing with Checkpoints
+
+Embeddings are generated in batches via `embedMany()` (Qwen3-Embedding-0.6B through Ollama). After each batch, `chunks_embedded` is persisted to libsql. If the app crashes after batch 3 of 10, it resumes from chunk 150 — not chunk 0.
+
+### Startup Crash Recovery
+
+When the Agents & RAG utility process starts (or auto-restarts after a crash):
+
+1. Move any jobs stuck in `processing` → `paused`
+2. Check `embed_started_at` — mark as `failed` if older than 5 minutes (hung job detection)
+3. `paused` jobs re-enter the queue as `pending` for automatic retry
+
+### Continuous Capture Trigger
+
+Unlike file-upload apps, our pipeline triggers when the Capture Utility process flushes data to `cowork.db`. The Agents & RAG utility process polls for new `pending` rows. No user-initiated upload, no file parsing — capture data is already text.
+
+---
+
+## RAG Context Assembly
+
+When the agent needs grounded context for a response, the RAG pipeline assembles material from multiple sources in priority order. This section describes the retrieval sub-pipeline within Mastra's `semanticRecall` layer — how grounded material is fetched and ranked. The overall context window composition (conversation history + working memory + semantic recall + observational memory) is handled by Mastra's Memory system (see [Memory System](#memory-system)).
+
+### Multi-Source Priority Order
+
+```
+1. Observation anchors    → user-pinned captures, always included first
+2. Recent capture buffer  → latest capture data not yet embedded (transient)
+3. Vector similarity search → standard RAG retrieval across embed_* indexes
+4. History backfill       → fillSourceWindow (prior-cited chunks, see below)
+5. Compress to fit        → recency-weighted truncation to stay within token budget
+```
+
+### fillSourceWindow Backfill
+
+Solves the follow-up query problem: user asks "tell me more about that ticket" but vector search returns nothing because the follow-up lacks original keywords.
+
+When vector search returns fewer results than needed, the pipeline walks conversation history in reverse (most recent first), extracts previously cited chunk IDs from each response's `citations` metadata, and re-injects those chunks into context. Deduplication by chunk ID prevents the same chunk appearing twice. Pinned observation anchors are excluded from backfill (already injected). Window cap (`nDocs` default of 4) prevents backfill from overwhelming fresh search results. Only a limited number of recent messages are scanned (not the entire conversation).
+
+### Query Refusal
+
+Two-checkpoint pattern prevents hallucination in grounded-query scenarios:
+
+**Checkpoint 1 — No embeddings exist at all:** If the relevant embedding indexes are empty, return a deterministic refusal message (no LLM call, saves tokens and latency).
+
+**Checkpoint 2 — Embeddings exist but context assembly returned nothing:** If the full pipeline (anchors + buffer + vector search + backfill) produces zero context, return a refusal message.
+
+Refusal messages must be visible to the user but excluded from future context windows (prevents "I don't know" answers from polluting subsequent queries). The exclusion mechanism depends on whether Mastra's `lastMessages` supports metadata filtering — see Open Architecture Questions #9.
+
+Applies to agents configured with grounded-query mode (e.g., capture summary agent). General chat agents skip refusal checkpoints and can respond using conversation history alone.
+
+---
+
 ## Agent Orchestration
 
 **Mastra.ai** runs in the Agents & RAG utility process. Embedded directly in Electron (not client-server) — Electron 37.1.0 ships Node 22.16.0, satisfying `@mastra/libsql`'s requirement.
+
+### Agent Execution Model
+
+Agent executions are tracked as **operations** — persistent execution units stored in the libsql `agent_operations` table. An operation captures the full state of an agent execution: status, step count, accumulated cost, and any tools awaiting human approval. Operations survive crashes (improvement over reference apps that store in-memory).
+
+**Operation status:** `idle` → `running` → `done` or `error`. May transition to `waiting_for_human` when a tool requires approval, then resume on user decision.
+
+**Instruction executor** — The agent loop separates decisions from side effects. The agent's runner function returns instructions; executors handle side effects:
+
+| Instruction | Purpose |
+|---|---|
+| `call_llm` | Send messages to LLM, get response |
+| `call_tool` | Execute single MCP tool |
+| `call_tools_batch` | Execute multiple tools in parallel |
+| `request_human_approve` | Pause for user approval of tool call |
+| `finish` | End execution normally |
+
+**Max-step safety limit** — Step counter per operation, incremented on each execution step. Prevents infinite tool-call loops (LLM calls tool → tool output triggers another tool → repeat). Complements the existing token budget safety from the complexity router.
+
+**Step scheduling** — In-process event loop (`setImmediate`), not HTTP queue. Operations paused by `waiting_for_human` resume via IPC from the renderer when the user approves or rejects.
 
 ### Execution Paths
 
@@ -578,7 +721,48 @@ starting ──→ running ──→ stopped (user toggled off)
 - Token refresh handled automatically; expiry detection triggers "reconnect" prompt in UI
 - Main process opens browser and captures OAuth callback, forwards tokens to Agents & RAG utility
 
+**MCP orphan cleanup** — Each stdio MCP server gets a lockfile (`{cowork_data_dir}/mcp_lock_{serverNameHash}.json` with child PID). On app startup, Main process runs a sweep before Agents boots: glob lockfiles → check process alive (signal 0) → kill stale process (SIGTERM, 3s grace, then SIGKILL) → delete lockfile. Prevents orphan MCP servers from consuming ports and memory after a crash.
+
+**Client cache with dedup** — `pendingClients` Map prevents duplicate connections when the agent fires multiple tool calls in rapid succession during startup. Before reuse, a health ping (1s timeout) verifies the client is still alive.
+
+**Notification-driven invalidation** — MCP servers push `ToolListChangedNotification` → client cache cleared → next access fetches fresh tool list. Handles external changes (e.g., user adds a Zendesk macro via the web UI → Zendesk MCP server's tool list changes).
+
+**Per-call abort** — `AbortController` per tool call with unique `callId`. Enables per-call cancellation for safety rails (cost threshold exceeded) and user "Stop" button. Active tool calls tracked in a Map; `abortTool(callId)` signals the controller.
+
+**MCP install state machine** — Guided 7-step flow for installing new MCP servers:
+
+```
+1. FETCHING_MANIFEST  → Fetch server manifest from registry or manual config
+2. CHECKING_DEPS      → Run dependency checks (Node.js version, npm/python)
+3. DEPS_REQUIRED      → [PAUSE] Show what's needed + install instructions
+4. CONFIG_REQUIRED    → [PAUSE] Show config form (API keys, URLs) from JSON schema
+5. STARTING_SERVER    → Start MCP server + list tools (validate working)
+6. SAVING_CONFIG      → Save connection config to libsql mcp_servers table
+7. COMPLETED          → Show success, clean up install state
+```
+
+Install state persisted in libsql (survives app restart — user can install Node.js, relaunch, and continue). Platform-specific dependency checking with actionable error messages ("node >= 18.0.0 required — install with `brew install node`"). Abort/cancel with cleanup at any step via `AbortController`.
+
 ### Safety Rails
+
+#### Multi-Phase Tool Approval Policy
+
+When the LLM requests a tool call, a 6-phase hierarchy decides whether to execute automatically or pause for approval. Security phases override user preferences:
+
+| Phase | Check | Result |
+|---|---|---|
+| 1. Security blacklist | Hardcoded dangerous-action list (e.g., `delete_*`, `send_email`, `execute_command`) | → Always require approval |
+| 2. Always-approve tools | Tool config says `requiresApproval: 'always'` | → Always require approval |
+| 3. Automation context | Running inside an automation flow | → Auto-execute (unless Phase 1/2 blocked) |
+| 4. Per-server policy | MCP server has custom approval policy | → Follow server policy |
+| 5. Auto-run mode | User setting: "Trust this integration" | → Allow all remaining tools |
+| 6. Default mode | Allow-list or manual mode | → Allow-list: tool in list → allow, else block. Manual: show approval dialog |
+
+**Mixed execution** — When the LLM requests multiple tools in a single step, safe tools execute immediately while dangerous ones await approval. The agent stays responsive — the user sees partial results while reviewing the approval request.
+
+**Approval state** — Operation transitions to `waiting_for_human`, stores `pendingToolsCalling` (the tools awaiting approval). User approves/rejects via IPC from the renderer. Approved tools execute directly (skip runner, go straight to executor). Rejected tools inform the agent, which decides on an alternative action.
+
+#### Guardrail Conditions
 
 | Condition | Action |
 |---|---|
@@ -634,6 +818,31 @@ IPC to Main → Main dispatches via Electron Notification API → macOS
 **Flow-state suppression:** Capture data already tracks extended single-app sessions (focus detection stream, ON by default). The trigger engine queries this before dispatching non-urgent notifications. If the user is in a deep work session, helpful and informational notifications are held in a queue and released on the next context switch.
 
 **Dismissal learning:** Each dismissal is logged to cowork.db with the trigger type. The trigger engine checks dismissal frequency when evaluating whether to surface a notification — consistently dismissed trigger types get deprioritized over time.
+
+### Automations Engine
+
+The Automations feature (product-features.md §5) uses a flow executor for sequential step execution with variable passing between steps. Runs in the Agents & RAG utility process.
+
+**Flow executor** — Sequential step execution with fail-fast on error. Each step's output is stored in a variables map, available to all subsequent steps. A step can set `directOutput: true` to bypass remaining steps and return immediately (early-return pattern).
+
+**Variable substitution** — Dot notation + bracket support for referencing prior step outputs: `${step1.data.ticketId}`, `${items[0].title}`. Unresolved variables are kept as `${...}` literals (allows partial resolution). Deep replacement walks every string in the step config recursively.
+
+**Block types:**
+
+| Block | Purpose |
+|---|---|
+| `trigger` | Event-driven: capture event, schedule, MCP notification |
+| `mcpToolCall` | Call an MCP tool (auth/transport handled by MCP layer) |
+| `agentStep` | Route to a Mastra agent (model selected via complexity router) |
+| `condition` | If/else branching based on variable values |
+| `delay` | Wait N seconds (for rate-limited tool calls) |
+| `notification` | Send result to user via system notification |
+
+**Flow storage** — libsql `automations` table with JSON config column. Atomic updates, queryable metadata (name, trigger type, enabled/disabled), included in single-DB backup.
+
+**Flow-as-tool** — Automations registered as Mastra tools so the agent can invoke flows mid-conversation. The agent calls `flow_{uuid}` as a tool, passing variables as arguments.
+
+**Safety rails apply** — Automation steps go through the same multi-phase tool approval policy. Approval gates pause the flow and notify the user. This prevents automations from taking destructive actions without consent.
 
 ---
 
@@ -723,6 +932,26 @@ src/
 
 **Why this split matters:** If we ever need to migrate off Electron, `core/` lifts out entirely — it has no Electron dependency. The `electron/` directory is ~4 files of wiring.
 
+### Build Configuration
+
+**ASAR unpack** — libsql and native capture addons (`coworkai-keystroke-capture`, `coworkai-activity-capture`) must be unpacked from the ASAR archive for `dlopen()`. Native `.node` files can't be loaded from inside ASAR — they need real filesystem paths.
+
+**Post-pack patching** — libsql native module patching at both install-time (pnpm patch) and post-pack (script after electron-builder). Belt-and-suspenders approach ensures patches survive regardless of how the build pipeline transforms `node_modules`.
+
+**Process-specific path aliases** — Separate build aliases prevent accidental cross-process imports:
+
+| Alias | Resolves to | Available in |
+|---|---|---|
+| `@main` | `src/electron` | Main process build |
+| `@core` | `src/core` | Main, workers |
+| `@renderer` | `src/renderer` | Renderer build |
+| `@shared` | `src/shared` | All builds |
+| `@workers` | `src/electron/*.worker.ts` | Worker builds |
+
+A renderer file can't `import '@main/...'` because that alias doesn't exist in the renderer build.
+
+**Main process chunk inlining** — Single output file for the main process build (`inlineDynamicImports: true`). No async chunk loading, no race conditions on startup.
+
 ---
 
 ## Hardware Requirements (v0.1, Mac only)
@@ -731,6 +960,18 @@ src/
 |---|---|---|
 | **16GB+ Apple Silicon** | Whisper on ANE + DeepSeek on GPU + full capture | User chooses local or cloud at onboarding |
 | **8GB Apple Silicon** | Whisper on ANE + full capture. No local LLM (not enough RAM). | Cloud-only (no choice needed) |
+
+**Multi-process memory footprint** (~3GB reserve for preflight fit check: ~2GB OS baseline + ~1GB our processes):
+
+| Process | Estimated memory |
+|---|---|
+| Electron Main | ~100MB |
+| Renderer | ~200MB |
+| Capture Utility | ~150MB |
+| Agents & RAG Utility (Mastra + Ollama client) | ~300MB |
+| Playwright Child (when active) | ~200MB |
+
+On 16GB → ~13GB usable → GREEN for DeepSeek-R1-8B (~5.5GB model + ~2GB KV cache). On 8GB → ~5GB usable → RED for 8B model → confirms cloud-only design.
 
 ---
 
@@ -762,8 +1003,10 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 | 3 | **App Gallery hosting** — where do Google AI Studio apps get stored? Local filesystem? Bundled? Cloud service? | Affects Apps feature architecture and distribution. |
 | 4 | **Bundle ID rename** — existing bundle ID is coworkai-branded. When do we rename to Cowork.ai Sidecar? | Affects signing, notarization, and auto-updater. |
 | 5 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
-| 6 | **IPC contract** — typed channel definitions not yet designed. | Blocks inter-process communication implementation. |
+| 6 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts` + `tracedInvoke` pattern for observability. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
 | 7 | **App-to-platform MCP transport** — how do third-party apps (rendered in Electron) access platform MCP tools? IPC bridge in preload (more secure, custom transport) vs. local HTTP server (reuses standard MCP client, opens a port). | Affects Apps feature security model and implementation. |
+| 8 | **MCP install registry** — where do MCP server manifests come from? Own registry, community standard (e.g., MCP marketplace), or manual config only for v0.1? | Affects MCP install state machine (step 1: fetch manifest). |
+| 9 | **Refusal message exclusion** — query refusal messages must be visible in the UI but excluded from Mastra's `lastMessages` context loading. Options: store refusals outside Mastra's message store (separate UI-only table), use Mastra metadata filtering if supported, or post-filter Mastra's context output. | Affects RAG query refusal implementation. |
 
 ---
 
@@ -785,3 +1028,4 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 **v1 (Feb 16, 2026):** Initial draft. Consolidates process model, data flow, IPC contract, capture layer, database layer, LLM stack, memory system, agent orchestration, feature-to-infrastructure mapping, thermal management, and directory structure from six existing decision/architecture docs into a single reference.
 **v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.
 **v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
+**v1.3 (Feb 17, 2026):** Integrated 5 remaining adaptation guides (Jan, Chatbox, LobeChat, AnythingLLM, Cherry Studio). Added: database hardening (single-client access, vector index namespacing, schema migration strategy), model lifecycle (preflight fit check, download integrity, path safety), embedding pipeline (resumable ingestion, batch checkpoints, crash recovery), RAG context assembly (multi-source priority order, fillSourceWindow backfill, query refusal), agent execution model (persistent operations, instruction executor, max-step safety), multi-phase tool approval policy (6-phase hierarchy, mixed execution, approval state), MCP enhancements (orphan cleanup, client cache with dedup, notification-driven invalidation, per-call abort, 7-step install state machine), IPC observability (tracedInvoke, 4-process waterfall, typed IpcChannel constants, trace storage), automations engine (flow executor, variable substitution, block types, flow-as-tool), build configuration (ASAR unpack, post-pack patching, process-specific aliases, chunk inlining), complexity router askId grouping, explicit hardware reserve breakdown.
