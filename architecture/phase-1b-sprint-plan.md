@@ -206,40 +206,105 @@ Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Stru
 
 ---
 
-### Sprint 4: Capture Utility Process
+### Sprint 4 (In Progress): Capture Utility Process
 
-**Repo:** coworkai-desktop
+**Repo:** coworkai-desktop (branch: `sprint-4`)
 **Blocks:** Sprint 6
 **Depends on:** Sprint 1 (schema) + Sprint 2 (IPC contract) + Sprint 3 (folder structure + libsql)
+**Reference:** [capture-pipeline-architecture.md](./capture-pipeline-architecture.md) — full behavioral specification for the capture pipeline
 
-Stand up the capture worker — native addons loading, buffer management, libsql writes.
+Stand up the capture worker — native addons loading, event-driven activity tracking, keystroke chunking, clipboard detection, supervisor lifecycle with restart backoff, permission gating, and crash recovery. Scope expanded significantly beyond initial plan to include supervisor state machine, setup permission wiring, flush-coupling alignment, and simulation mode for deterministic testing.
 
 **Work:**
 
-1. **Re-add native addon dependencies:**
-   - `@engineering-go2/coworkai-activity-capture`
-   - `@engineering-go2/coworkai-keystroke-capture`
-   - Update forge rebuild list to include both
+1. **Native addon dependencies and packaging:**
+   - `@engineering-go2/coworkai-activity-capture` (vendored tarball for packaging-safe install)
+   - `@engineering-go2/coworkai-keystroke-capture` (vendored tarball)
+   - `forge.config.ts` rebuild list: `libsql` + both capture addons
+   - Verified against Electron 37 ABI
 
-2. **Wire `capture.worker.ts`:**
-   - Load native addons (NativeAddonManager)
-   - Init libsql sync client → `cowork.db` with WAL pragmas
-   - Run schema migration (CREATE TABLE IF NOT EXISTS for capture tables from Sprint 1)
+2. **Capture worker (`capture.worker.ts`) — full command lifecycle:**
+   - Command router: `init`, `start`, `stop`, `health`, `shutdown`, `toggleStream`, `getStatus`, `getStreamConfig`, `simulate`
+   - Init: open libsql sync client → `cowork.db`, apply pragmas (WAL, busy_timeout=5000, foreign_keys=ON), run CREATE TABLE IF NOT EXISTS for all 5 capture tables, run additive migrations, recover stale open sessions, init native addons
+   - Start: subscribe to x-win active window events (100ms interval), seed initial activity session, start keystroke capture, start chunk idle flush poller (500ms)
+   - Stop/shutdown: unsubscribe, flush open chunk, finalize current session, (shutdown only) close DB
 
-3. **Port capture orchestration from `coworkai-agent`:**
-   - Activity buffer (5-slot queue, `autoFlushIfNeeded()`)
-   - Keystroke chunker (debounce + special-key triggers + 1000-char flush)
-   - Clipboard capture (hotkey detection → `readClipboard()`)
-   - Point all writes at new schema tables
+3. **Activity stream — event-driven, not poll-driven:**
+   - Primary source: `@miniben90/x-win` `subscribeActiveWindow()` fires on each poll
+   - Enrichment: `@engineering-go2/coworkai-activity-capture` supplements missing window title/URL (app name match required, case-insensitive)
+   - Parent-first session durability: INSERT `activity_sessions` row at session start (`ended_at = NULL`) before any dependent chunk/clipboard writes
+   - Heartbeat: update `last_observed_at` while session active (throttled to 1s)
+   - Session boundary: any change in (appName, bundleId, windowTitle, browserUrl) triggers finalize → flush chunk → new session
+   - Finalization triggers: context change, stop, shutdown, all activity streams toggled OFF
 
-4. **Wire main ↔ capture IPC:**
-   - Main spawns capture utility process on boot
-   - `capture:getStatus`, `capture:toggleStream` handlers
-   - Signal ready to main
+4. **Keystroke stream — independent flush semantics:**
+   - Keystroke chunker with debounce (1200ms idle) + max printable length (1000 chars)
+   - Single ordered `chunk_text` field with interleaved printable chars and `<Control>` tokens — no separate `special_keys` column
+   - Full key normalization: SPACE/SPACEBAR → space char, RETURN/ENTER → `<Enter>`, unknown multi-char keys preserved as `<key>` tokens (never dropped)
+   - Chunk flush never ends activity session (one-directional: activity end flushes chunk, not vice versa)
+   - Idle poller at 500ms checks for 1200ms since last key event
 
-5. **Validate:** App launches → capture process starts → activity events flush to `cowork.db`
+5. **Clipboard stream — hotkey-triggered with OS clipboard read:**
+   - Detection inside keystroke `onKey` callback (Cmd/Ctrl+C/V/X, DOWN only, non-repeat)
+   - OS clipboard read: `pbpaste` (macOS), `powershell Get-Clipboard` (Windows)
+   - Copy/cut: 100ms delayed re-read to catch OS clipboard update race
+   - SHA-256 content hashing, 250ms dedup window
+   - Non-text payloads silently skipped
 
-**Output:** Capture utility process running, writing real data to libsql. Addons working in utility process context.
+6. **Focus sessions — derived from activity:**
+   - On activity session finalization, if `duration_ms >= 300,000ms` (5 min), INSERT `focus_sessions` row
+   - Dedup by `activity_session_id`
+   - During recovery, focus insertion is forced (ignores stream toggle)
+
+7. **Startup crash recovery:**
+   - During `init`, find all `activity_sessions` where `ended_at IS NULL`
+   - Derive close time from latest signal: `max(last_observed_at, max(keystroke_chunks.ended_at), max(clipboard_events.captured_at), max(browser_sessions.captured_at))`
+   - Clamp to recovery boot timestamp, floor at `started_at`
+   - Single transaction with ROLLBACK on error
+
+8. **Stream config and toggles:**
+   - Five streams (window_tracking, focus, browser, keystroke, clipboard), all default ON
+   - Activity monitoring group: any of (window_tracking, focus, browser) enables x-win subscription
+   - Keystroke capture group: either (keystroke, clipboard) enables native addon
+   - Config persisted to `capture-streams.json`, cached in memory, write-through on toggle
+
+9. **Supervisor lifecycle (`src/app/main/modules/capture/supervisor.ts`):**
+   - State machine: `degraded` → `starting` → `running` / `degraded` → `restarting` → `running` / `failed`
+   - Restart backoff: `[2s, 4s, 8s, 16s, 32s]`, 5 attempts max → `failed` (terminal)
+   - Permission gate: `setPermissionGate(blocked)` from setup module (macOS Accessibility)
+   - System pause/resume: power monitor events (lock/sleep) stop capture without killing worker
+   - Worker path resolution: dev → CWD-relative → packaged (3-path fallback)
+   - IPC protocol: request/response with UUID correlation, per-command timeouts
+
+10. **Setup permission wiring:**
+    - Replaced mocked `setup:grant` with runtime-backed permission checks
+    - Accessibility: native `KeystrokeCapture.checkPermission()` / `requestPermission()`
+    - Microphone: Electron `systemPreferences` API
+    - Screen: status check + System Settings deep link (no `tccutil reset`)
+    - Permission outcomes persisted based on actual runtime results
+    - Setup completion triggers capture supervisor permission gate update
+
+11. **Simulation mode (deterministic testing):**
+    - `CAPTURE_SIMULATION=1` env flag enables synthetic event injection without native addons
+    - Actions: `windowSample`, `text`, `key`, `flushChunk`, `clipboard`
+    - Deterministic timestamps via `atIso` parameter
+    - `npm run capture:validate:local` for local worker/DB validation
+
+12. **Main process integration and IPC relay (remaining):**
+    - Spawn capture utility process from `src/electron/main.ts`
+    - Register IPC relay handlers: `capture:getStatus`, `capture:toggleStream`, `capture:getStreamConfig`
+    - Enforce 10s startup timeout without blocking renderer
+    - Surface service state transitions for renderer health UX
+
+13. **Validation (remaining):**
+    - Automated tests for buffer/chunker/flush, worker message contract, IPC handlers, crash recovery
+    - Dev runtime smoke: worker boot, migrations, capture row writes
+    - Toggle stream ON/OFF, crash/restart recovery
+    - Packaged runtime: `electron-forge package`, native module load, artifact layout
+
+**Progress:** Core capture worker logic (items 1-11) is implemented. Supervisor integration with main process (item 12) and full validation suite (item 13) are remaining.
+
+**Output:** Capture utility process running, writing real data to libsql. Full supervisor with restart backoff and permission gating. Addons working in utility process context. Complete behavioral specification documented in [capture-pipeline-architecture.md](./capture-pipeline-architecture.md).
 
 ---
 
@@ -497,6 +562,10 @@ Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, sto
 ---
 
 ## Changelog
+
+**v15 (Feb 17, 2026):** Sprint 4 scope expansion to match implementation reality. Replaced 5-item summary with 13-item detailed work breakdown covering: event-driven activity stream (not poll-driven), full keystroke normalization and chunk format, clipboard hotkey detection with OS read and dedup, focus session derivation, startup crash recovery, stream config persistence, supervisor state machine with restart backoff and permission gate, setup permission wiring (replaced mocked checks with runtime APIs), simulation mode for deterministic testing, and remaining work (main process integration + validation). Added cross-reference to new capture-pipeline-architecture.md. Marked sprint as "In Progress" with branch reference.
+
+**v14 (Feb 17, 2026):** Sprint 4 capture semantics lock. Expanded Task 3 with explicit decoupled flush behavior (chunk max-length never ends activity), parent-first session persistence, `last_observed_at` heartbeat updates, one-directional end ordering (activity end flushes chunk first), deterministic startup recovery for stale open sessions, and read-path-only short-session filtering.
 
 **v13 (Feb 17, 2026):** Marked Sprint 2 (IPC Contract + Shared Types) as complete. Updated blocking-open-questions row #3 from "Resolved — Draft" to "Resolved — Final Draft" and refreshed dependency summary to reflect that Sprints 1-3 are complete and implementation can proceed into Sprints 4-5.
 

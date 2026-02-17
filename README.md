@@ -111,6 +111,7 @@ Cowork.ai sits at the intersection of model selection, cost economics, and distr
 │
 ├── architecture/              ← System architecture, LLM stack, apps runtime
 │   ├── system-architecture.md
+│   ├── capture-pipeline-architecture.md
 │   └── llm-architecture.md
 │
 ├── research/                  ← Open-source app analysis
@@ -164,4 +165,5 @@ If you can't explain why you changed it, don't change it.
 | [Design System](design/design-system.md) | v1.0 | 2026-02-12 |
 | [GTM & Distribution](gtm/launch-gtm-strategy.md) | v1.1 | 2026-02-12 |
 | [Prototype Brief](design/prototype-brief.md) | v0.1 | 2026-02-12 |
+| [Capture Pipeline Architecture](architecture/capture-pipeline-architecture.md) | v1 | 2026-02-17 |
 | [Decision Log](decisions/decision-log.md) | initialized | 2026-02-12 |
