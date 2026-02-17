@@ -445,3 +445,62 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - Remove agent-style access for apps entirely: rejected — apps still need platform reasoning in some flows; agent-as-tool preserves capability without expanding surface area.
 
 **Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Capture data model: independent streams (not parent-child)
+
+**Changed:** Capture streams are independent peers in the database, not parent-child entities. Keystroke chunks and clipboard events carry denormalized app context (`app_name`/`bundle_id`/`source_app`) so each row is self-contained. `activity_session_id` columns across capture tables are optional correlation hints, not structural dependencies.
+
+**From → To:**
+- Parent-child model: keystroke chunks and clipboard events are children of activity sessions, linked by `activity_session_id` FK → Independent streams: each table is a self-contained timeline, correlated by overlapping timestamps at read time. `activity_session_id` is nullable and optional.
+- Keystroke chunks depend on JOIN to `activity_sessions` to know which app was active → Keystroke chunks carry `app_name` and `bundle_id` directly (same pattern clipboard events already use with `source_app`).
+
+**Why:**
+1. product-features.md describes five independently toggleable capture streams. The database should mirror the product model — streams are peers, not a hierarchy.
+2. The parent-child model existed because the old `coworkai-agent` sync pipeline shipped activities with nested keystrokes as payload containers. That sync pipeline is gone — data is local-only.
+3. Self-contained rows mean "what was typed in which app?" is answerable from `keystroke_chunks` alone — no JOIN needed for the most common consumer query (communication pattern extraction).
+4. Eliminates write-path coupling: each stream buffers and flushes independently. The orchestration layer (`CaptureBufferManager`) coordinates lifecycle events (activity change → flush keystroke chunk), but this is a pipeline concern, not a schema invariant.
+5. The flush coupling problem (1000-char keystroke threshold triggering activity session flushes) dissolves entirely — there's no parent to flush.
+
+**Schema changes:**
+- Added `app_name TEXT` and `bundle_id TEXT` to `keystroke_chunks`
+- Added `idx_keystroke_chunks_app_name` index
+- Updated all `activity_session_id` DDL comments to "optional correlation hint"
+- Added "Why capture streams are independent peers" design note to database-schema.md
+
+**Cost impact:** None. Two additional TEXT columns on keystroke_chunks (negligible storage at our volume). Simpler write path, simpler queries.
+
+**Full analysis:** [`decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md`](CAPTURE_FLUSH_COUPLING_ANALYSIS.md)
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Capture flush semantics: decouple keystroke max-length from activity session boundaries
+
+**Changed:** Locked capture write semantics so 1000-char keystroke limits flush only `keystroke_chunks` (not `activity_sessions`). Added durability rules: parent-first session persistence, active-session heartbeat, one-directional end ordering, and deterministic startup recovery for stale open sessions.
+
+**From → To:**
+- 1000-char threshold could end both chunk and activity session (legacy sync-era behavior leaked into target architecture) → 1000-char threshold ends chunk only; activity sessions end only on focus/idle/sleep/shutdown/recovery-close.
+- Implicit capture durability semantics → explicit invariants:
+  - insert `activity_sessions` at session start (`ended_at = NULL`)
+  - maintain `last_observed_at` heartbeat while active
+  - on session end, flush open chunk first, then finalize session row
+  - on startup, deterministically close stale open sessions from latest available signal (clamped to boot time)
+- Ambiguous short-session handling → canonical rule: apply `<500ms` threshold in read-path analytics (focus/summaries), never by deleting raw capture rows on write path.
+
+**Why:**
+1. Semantic correctness: `activity_sessions` model user attention windows, not storage payload boundaries. Keystroke volume is not a valid signal that attention moved.
+2. Product behavior integrity: coupled flushes fragment context into artificial micro-sessions, degrading Context Card clarity, focus detection, and RAG recall quality.
+3. Data integrity under crashes: without parent-first + recovery semantics, decoupling can create orphaned chunks or indefinitely open sessions.
+4. Cross-doc consistency: architecture, schema, and sprint implementation guidance must encode the same boundary rules or implementation drift is guaranteed.
+
+**Cost impact:** Neutral to low-positive. No new external services or paid dependencies. Slightly more write activity from `last_observed_at` heartbeat updates, offset by simpler downstream analytics logic and reduced debugging cost from deterministic recovery behavior.
+
+**Alternatives considered:**
+- Keep coupled flush behavior (chunk max-length also ends activity): rejected — preserves sync-era artifact, fragments semantic sessions, weakens focus/RAG correctness.
+- Decouple flushes without heartbeat/recovery rules: rejected — leaves crash edge cases unresolved (open sessions/orphan risk) and undercounts passive read-only work.
+- Drop short sessions at write-time: rejected — loses raw ground-truth data and makes threshold tuning/audit harder.
+
+**Approved by:** Rustan
