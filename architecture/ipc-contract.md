@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Draft v4 (reviewed) |
 | **Last Updated** | 2026-02-17 |
 | **Owner** | Rustan |
 | **Sprint** | Phase 1B, Sprint 2 |
@@ -39,6 +39,7 @@ The channel inventory wasn't invented — it was extracted from four existing do
 2. **[system-architecture.md](./system-architecture.md) § IPC Contract** — Defines the three patterns (invoke/handle, MessagePort streaming, event push), the `@channel` decorator pattern, `tracedInvoke` observability, and the preload namespace table. This doc doesn't redefine patterns — it populates them.
 3. **[product-features.md](../product/product-features.md)** — The 6 features (Apps, MCP Integrations, Chat, MCP Browser, Automations, Context) define what data needs to flow. Each namespace maps to a feature: `chat:*` ↔ Chat, `mcp:*` ↔ MCP Integrations, `apps:*` ↔ Apps, `context:*` ↔ Context, `browser:*` ↔ MCP Browser, `automation:*` ↔ Automations.
 4. **[design-system.md](../design/design-system.md)** — The three-state UI model (Closed → SideSheet → Detail Canvas) tells us which views trigger which channels. Context Card needs `context:getContextCard`, Chat FAB needs `chat:sendMessage`, Settings needs `capture:toggleStream` + `system:health`, etc.
+5. **[database-schema.md](./database-schema.md)** — Defines the persistence model this IPC layer reads/writes (`mcp_servers`, `mcp_connection_state`, `installed_apps`, `app_permissions`, capture tables used by context/chat). IPC payloads map to these ownership boundaries.
 
 ### Why these schema shapes
 
@@ -71,11 +72,11 @@ Validation happens at the handler entry point (parse request) and at the preload
 - **Streaming to apps** — App SDK responses are request/response in Phase 1B. Streaming to apps via `onMessage()` is deferred to Phase 3.
 - **Pagination** — Only `chat:getThreads` has cursor-based pagination. Other list endpoints (`apps:list`, `mcp:listConnections`) are expected to have small result sets in v0.1. Pagination can be added if lists grow.
 
-### Open questions in this draft
+### Decisions locked for Phase 1B
 
-1. **Should `context:query` be a separate channel from `context:getRecentActivity`?** In Phase 1B they both do direct SQL. In Phase 2, `query` becomes vector search while `getRecentActivity` stays as direct SQL. Keeping them separate now avoids a breaking change later. Current decision: keep separate.
-2. **Should streaming chunks include a `threadId` field?** Currently they don't — the renderer associates the stream with the thread from the `sendMessage` response. This works for single-stream (one active generation at a time). If we support parallel generations later, chunks will need a thread identifier. Current decision: omit for v0.1, add if needed.
-3. **Should `apps:install` accept a file path or a buffer?** Current decision: file path (the renderer writes the uploaded zip to a temp file, passes the path). This avoids serializing large buffers over IPC. The tradeoff is the renderer needs file system access via a dialog — which Electron's `dialog.showOpenDialog()` handles natively.
+1. **Keep `context:query` separate from `context:getRecentActivity`.** They share direct SQL behavior in Phase 1B, but diverge in Phase 2 (`query` moves to vector retrieval while `getRecentActivity` stays relational).
+2. **Streaming chunks omit `threadId` for v0.1.** The renderer binds stream events to the `threadId` returned by `chat:sendMessage`. Add chunk-level `threadId` only when parallel generations become a supported UX.
+3. **`apps:install` accepts `zipPath` (not raw buffer).** This avoids large IPC payload serialization and matches Electron file picker flow.
 
 ---
 
@@ -417,6 +418,7 @@ export type ContextQueryResponse = z.infer<typeof contextQueryResponseSchema>;
 #### `context:getRecentActivity`
 
 Direct SQL query against capture tables. Returns recent activity records.
+Backed by capture tables in [database-schema.md](./database-schema.md): `activity_sessions` (primary), with optional merge/projection from `focus_sessions`, `keystroke_chunks`, `clipboard_events`, and `browser_sessions` as needed for unified timeline output.
 
 ```ts
 export const contextGetRecentActivityRequestSchema = z.object({
@@ -458,6 +460,7 @@ MCP server management. All channels route through main to agents. Phase 1B suppo
 #### `mcp:connect`
 
 Start an MCP server and persist its configuration. API keys encrypted via Electron `safeStorage` before storage.
+Persistence mapping: config row in `mcp_servers` plus runtime health/state row in `mcp_connection_state` (see [database-schema.md](./database-schema.md)).
 
 ```ts
 export const mcpConnectRequestSchema = z.object({
@@ -888,6 +891,7 @@ The ACK gate prevents the agents process from streaming before the renderer has 
 ## App Preload SDK
 
 Sandboxed apps get a restricted `window.cowork.*` API via `app-preload.ts`. This preload wraps `apps:*` IPC channels with permission enforcement and automatic `appId` injection.
+Permission source of truth is `app_permissions` in [database-schema.md](./database-schema.md), projected into preload `grants` (`tools[]`, `captureRead`) per app.
 
 ```ts
 // app-preload.ts (conceptual — not full implementation)
@@ -1042,6 +1046,8 @@ These helpers are implemented in Sprint 3 (folder restructure) or Sprint 4/5 (wh
 ---
 
 ## Changelog
+
+**v4 (Feb 17, 2026):** Finalized Sprint 2 draft contract for implementation sync. Added explicit alignment with [database-schema.md](./database-schema.md) for context reads, MCP persistence (`mcp_servers` + `mcp_connection_state`), and app permission enforcement (`app_permissions`). Replaced "Open questions in this draft" with locked Phase 1B decisions.
 
 **v3 (Feb 17, 2026):** Apps permission-model alignment. Removed `apps:chat` channel and all direct app `chat()` SDK references to match "Apps get tools, not agents." App-side reasoning now flows through `apps:callTool` with a platform tool (e.g., `platform_chat`). Updated channel inventory, apps dual-caller rationale, app preload example, `IpcChannels.apps` map, handler type map, and `appPermissionsSchema` (`agent` → `captureRead`).
 

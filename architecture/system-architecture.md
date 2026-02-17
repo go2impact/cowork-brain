@@ -4,12 +4,12 @@
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
-**Open items (1 question, 1 inline):**
+**Open items (0 questions, 1 inline):**
 
 | # | Question | Blocks v0.1? | What it takes to resolve |
 |---|---|---|---|
-| 2 | **Database schema** | Yes — can't write code without tables | Design from product-features.md: 5 capture streams, 4 memory layers, agent state |
-| 3 | **IPC contract** | **Resolved — Draft** | 34 channels, 9 namespaces, full Zod schemas. See [ipc-contract.md](./ipc-contract.md) |
+| 2 | **Database schema** | **Resolved — Draft** | Full table design, ownership map, retention policy, and types in [database-schema.md](./database-schema.md) |
+| 3 | **IPC contract** | **Resolved — Final Draft** | 34 channels, 9 namespaces, full Zod schemas with locked Phase 1B decisions. See [ipc-contract.md](./ipc-contract.md) |
 
 Inline: **Observer model choice** (line 612, needs benchmarking)
 
@@ -1170,12 +1170,12 @@ On 16GB → ~13GB usable → GREEN for DeepSeek-R1-8B (~5.5GB model + ~2GB KV ca
 
 ## Open Architecture Questions
 
-Unresolved questions that affect implementation. Carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) and [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md).
+Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) and [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md). All blocking items below are now resolved.
 
 | # | Question | Impact |
 |---|---|---|
-| 2 | **Database schema** — not finalized. New schema designed from product-features.md, not carried over from old tracking tables. | Blocks Phase 1 implementation. |
-| 3 | **IPC contract** — partially answered: typed `IpcChannel` constants in `src/shared/ipc-channels.ts`, `tracedInvoke` pattern for observability, `system:health` + `system:retry` channels for service health. Remaining: full channel inventory and Zod schemas for each channel's payload. | Blocks inter-process communication implementation. |
+| 2 | **Database schema** — finalized as draft for implementation: [database-schema.md](./database-schema.md). | Unblocks Phase 1 implementation. |
+| 3 | **IPC contract** — finalized as Sprint 2 final draft: [ipc-contract.md](./ipc-contract.md). | Unblocks inter-process communication implementation. |
 
 **Resolved:**
 - **Mastra in utility process** → GO. PoC spike (Feb 17, 2026) passed all 7 steps. `@mastra/core` + `@mastra/libsql` initialize and run agents in Electron utility process. Streaming via MessagePort with ACK gate pattern. Crash isolation works (exit → restart → resumed). Packaged runtime resolves native modules from `app.asar.unpacked`. See [phase-1b-sprint-plan.md Sprint 0](./phase-1b-sprint-plan.md#sprint-0-complete-mastra-utility-process-spike).
@@ -1204,6 +1204,10 @@ Unresolved questions that affect implementation. Carried forward from [DESKTOP_S
 ---
 
 ## Changelog
+
+**v1.5.5 (Feb 17, 2026):** Synced database and IPC blocker status with completed Sprint 1/2 design docs. Top tracker now shows 0 open blocker questions (inline observer benchmark still open). Updated "Open Architecture Questions" table language to reflect resolved state with direct links to `database-schema.md` and `ipc-contract.md`.
+
+**v1.5.4 (Feb 17, 2026):** Synced IPC contract status from "Resolved — Draft" to "Resolved — Final Draft" after final Sprint 2 contract lock. No contract-surface changes; status alignment only.
 
 **v1.5.3 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `chat(message)` method to match product rule "Apps get tools, not agents." Apps now reach platform reasoning through `callTool('platform_chat', ...)` (agent-as-tool), with normal tool permission checks. Updated Platform SDK table, two-track generic-export guidance, Gemini proxy decision row, installation flow permission step, and the resolved decisions summary.
 

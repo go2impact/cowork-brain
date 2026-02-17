@@ -19,7 +19,7 @@ From [system-architecture.md](./system-architecture.md) — Phase 1B cannot ship
 |---|---|---|---|
 | 1 | Mastra in utility process | **Resolved — GO** | All 7 spike steps passed (Feb 17). Utility process viable for Mastra + libsql + MessagePort streaming. See `coworkai-desktop/docs/plans/mastra-utility-process-viability-spike-result.md` |
 | 2 | Database schema | **Resolved — Draft** | Full DDL, table ownership map, rationale, and TypeScript row types in [database-schema.md](./database-schema.md) |
-| 3 | IPC contract | **Resolved — Draft** | 34 channels, 9 namespaces, full Zod schemas. See [ipc-contract.md](./ipc-contract.md) |
+| 3 | IPC contract | **Resolved — Final Draft** | 34 channels, 9 namespaces, full Zod schemas, and locked Phase 1B design decisions. See [ipc-contract.md](./ipc-contract.md) |
 
 ---
 
@@ -135,11 +135,11 @@ Design the new schema from [product-features.md](../product/product-features.md)
 
 ---
 
-### Sprint 2: IPC Contract + Shared Types
+### Sprint 2 (Complete): IPC Contract + Shared Types
 
 **Repo:** cowork-brain (design doc)
 **Blocks:** Sprint 4, Sprint 5
-**No blockers** — design task, can start immediately. Agent streaming uses MessagePort bridge + ACK gate pattern proven in Sprint 0 spike.
+**Result: DONE** — Final draft contract delivered at [ipc-contract.md](./ipc-contract.md).
 
 Full channel inventory + Zod schemas. [system-architecture.md § IPC Contract](./system-architecture.md#ipc-contract) defines the patterns — this sprint enumerates every channel.
 
@@ -466,8 +466,8 @@ Sprint 3: Folder Restructure ─────┤              │
                     Sprint 8: Basic Apps Runtime
 ```
 
-Sprints 0, 1, and 3 are complete. Sprint 2 (IPC contract) is in draft and ready for implementation sync.
-Sprints 4-5 are unblocked by Sprint 3 + Sprint 1 (and Sprint 2 contract draft). Can run in parallel if there's a second pair of hands, otherwise sequential.
+Sprints 0, 1, 2, and 3 are complete.
+Sprints 4-5 are unblocked by completed design contracts (Sprints 1-2) and foundation work (Sprint 3). Can run in parallel if there's a second pair of hands, otherwise sequential.
 Sprint 6 validates the core runtime. Sprint 7 adds external service connectivity. Sprint 8 adds the apps runtime.
 
 **Parallel track:** M3 component library built independently, integrated in Sprint 6.
@@ -497,6 +497,8 @@ Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, sto
 ---
 
 ## Changelog
+
+**v13 (Feb 17, 2026):** Marked Sprint 2 (IPC Contract + Shared Types) as complete. Updated blocking-open-questions row #3 from "Resolved — Draft" to "Resolved — Final Draft" and refreshed dependency summary to reflect that Sprints 1-3 are complete and implementation can proceed into Sprints 4-5.
 
 **v12 (Feb 17, 2026):** Marked Sprint 1 (Database Schema Design) as complete. Updated blocking-open-questions row #2 from "Not started" to "Resolved — Draft" with direct link to [database-schema.md](./database-schema.md). Updated dependency summary to reflect that Sprints 4-5 are now unblocked by completed Sprint 1 and drafted Sprint 2 contract.
 
