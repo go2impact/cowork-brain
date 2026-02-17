@@ -74,7 +74,7 @@ React 19 + TypeScript
 
 ### Parallelizable frontend task
 
-The shadcn/ui + M3 token override work can run **fully in parallel** with Sprints 0-5. A frontend dev copies 15 shadcn components into the project and re-skins them with M3 token classes per [ui-component-task-brief.md](./ui-component-task-brief.md). Deliverable: `src/renderer/components/ui/` folder with Tailwind config, CSS variable file (dark + light), and restyled components. Integrated into the Electron renderer in Sprint 6.
+The shadcn/ui + M3 token override work can run **fully in parallel** with Sprints 0-5. A frontend dev copies 19 shadcn components into the project and re-skins them with M3 token classes per [ui-component-task-brief.md](./ui-component-task-brief.md). Deliverable: `src/renderer/components/ui/` folder with Tailwind config, CSS variable file (dark + light), and restyled components. Integrated into the Electron renderer in Sprint 4.5.
 
 ---
 
@@ -206,11 +206,12 @@ Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Stru
 
 ---
 
-### Sprint 4 (In Progress): Capture Utility Process
+### Sprint 4 (Complete): Capture Utility Process
 
-**Repo:** coworkai-desktop (branch: `sprint-4`, PR: [#11](https://github.com/go2impact/coworkai-desktop/pull/11))
-**Blocks:** Sprint 6
+**Repo:** coworkai-desktop
+**Blocks:** Sprint 4.5
 **Depends on:** Sprint 1 (schema) + Sprint 2 (IPC contract) + Sprint 3 (folder structure + libsql)
+**Result: DONE** — PR [#11](https://github.com/go2impact/coworkai-desktop/pull/11) (Feb 17, 2026).
 **Reference:** [capture-pipeline-architecture.md](./capture-pipeline-architecture.md) — full behavioral specification for the capture pipeline
 
 Stand up the capture worker — native addons loading, event-driven activity tracking, keystroke chunking, clipboard detection, supervisor lifecycle with restart backoff, permission gating, and crash recovery. Scope expanded significantly beyond initial plan to include supervisor state machine, setup permission wiring, flush-coupling alignment, and simulation mode for deterministic testing.
@@ -290,21 +291,44 @@ Stand up the capture worker — native addons loading, event-driven activity tra
     - Deterministic timestamps via `atIso` parameter
     - `npm run capture:validate:local` for local worker/DB validation
 
-12. **Main process integration and IPC relay (remaining):**
+12. **Main process integration and IPC relay:**
     - Spawn capture utility process from `src/electron/main.ts`
     - Register IPC relay handlers: `capture:getStatus`, `capture:toggleStream`, `capture:getStreamConfig`
     - Enforce 10s startup timeout without blocking renderer
     - Surface service state transitions for renderer health UX
 
-13. **Validation (remaining):**
+13. **Validation:**
     - Automated tests for buffer/chunker/flush, worker message contract, IPC handlers, crash recovery
     - Dev runtime smoke: worker boot, migrations, capture row writes
     - Toggle stream ON/OFF, crash/restart recovery
     - Packaged runtime: `electron-forge package`, native module load, artifact layout
 
-**Progress:** Core capture worker logic (items 1-11) is implemented. Supervisor integration with main process (item 12) and full validation suite (item 13) are remaining.
-
 **Output:** Capture utility process running, writing real data to libsql. Full supervisor with restart backoff and permission gating. Addons working in utility process context. Complete behavioral specification documented in [capture-pipeline-architecture.md](./capture-pipeline-architecture.md).
+
+---
+
+### Sprint 4.5: Renderer Foundation + Component Library Integration
+
+**Repo:** coworkai-desktop
+**Blocks:** Sprint 6
+**Depends on:** Sprint 4 + cowork-ui component library (complete)
+**Reference:** [phase-1b-sprint-4.5-renderer-foundation.md](https://github.com/go2impact/coworkai-desktop/blob/main/docs/plans/phase-1b-sprint-4.5-renderer-foundation.md) — full implementation plan in desktop repo
+
+Split from Sprint 6 to unblock frontend development. Component integration, theme system, and routing shell can proceed immediately after Sprint 4 merges — in parallel with Sprint 5 (agents process). Without this split, no frontend work could happen until Sprint 5 ships.
+
+**Work:**
+
+1. **Install missing dependencies:** 10 Radix primitives, `class-variance-authority`, `lucide-react`, `tailwind-merge`, `sonner`, `@fontsource-variable/inter`, `tw-animate-css`
+2. **Configure `@/` path alias** in both `tsconfig.json` and Vite config — cowork-ui components import via `@/lib/utils`
+3. **Replace theme system:** Delete old M3 v1 generator/CSS, copy new `globals.css` from cowork-ui (M3 CSS variables, `@theme inline` block, dark + light themes), add `tailwind.config.ts` with M3 token mappings
+4. **Copy component library:** 19 M3-styled shadcn/ui components from cowork-ui → `src/app/renderer/components/ui/`, plus `cn()` utility. Move 25 legacy components to `_legacy/` (setup window still imports them)
+5. **Wire routing shell:** MemoryRouter with 4 placeholder views (Chat, Context, Apps, Settings), `AppLayout` with sidebar navigation using new M3 components, dark theme default
+6. **Update Vite chunk splitting:** Replace `react-icons` references with Radix packages
+7. **Import Inter font:** Self-hosted via `@fontsource-variable/inter`
+
+**Validate:** `npm install` → `tsc --noEmit` → `npm start` → routing shell renders with M3 dark theme → all 4 view stubs navigate correctly → setup window still works with legacy components
+
+**Output:** Production M3 component library integrated, routing shell with 4 placeholder views, path aliases working, theme system replaced. Frontend developers can build views against real components while Sprint 5 runs in parallel.
 
 ---
 
@@ -346,28 +370,21 @@ Wire the agents worker based on Sprint 0 spike learnings. Skeleton — not full 
 
 ---
 
-### Sprint 6: Renderer Foundation + End-to-End Smoke Test
+### Sprint 6: End-to-End Smoke Test
 
 **Repo:** coworkai-desktop
-**Depends on:** Sprint 4 + Sprint 5 + UI component library (from [ui-component-task-brief.md](./ui-component-task-brief.md))
+**Depends on:** Sprint 4.5 (renderer foundation) + Sprint 5 (agents process)
 
-Minimal sidecar UI shell + validate the full data pipeline.
+Wire the placeholder views from Sprint 4.5 to live data and validate the full capture → chat pipeline.
 
 **Work:**
 
-1. **Integrate M3 component library** from standalone project (built in parallel by frontend dev per [ui-component-task-brief.md](./ui-component-task-brief.md)):
-   - Copy `src/renderer/components/ui/` (15 M3-styled shadcn components) into coworkai-desktop
-   - Copy `src/renderer/lib/utils.ts` (cn() utility)
-   - Merge `globals.css` (M3 CSS variables, dark + light themes) into renderer CSS entry point
-   - Merge `tailwind.config.ts` M3 token mappings into project Tailwind config
-   - Install renderer dependencies: Radix packages, `lucide-react`, `motion`, `sonner`, `clsx`, `tailwind-merge`
-   - Install remaining renderer stack: `zustand`, `@tanstack/react-query`, `react-router-dom`, `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex`, `shiki`
-   - Verify: `npm install` → `tsc --noEmit` → components render in Electron renderer
-2. **Preload script:** Expose `window.cowork.*` namespaces (chat, capture, context, system, app)
-3. **Renderer shell:** Basic React layout with M3 navigation (SideSheet + detail canvas per [design-system.md](../design/design-system.md)) — Chat, Context, Apps (placeholder route — empty shell until Sprint 8 populates it), Settings routes.
-4. **Chat view:** Minimal chat UI using `@ai-sdk/react` v3 `useChat()` with IPC transport
-5. **Context view:** Query capture data from cowork.db via agents process, display recent activity
-6. **Settings view:** Show stream toggles (on/off for each capture stream), service health status
+1. **Preload script:** Expose `window.cowork.*` namespaces (chat, capture, context, system, app)
+2. **Install remaining renderer deps:** `zustand`, `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex`, `shiki`
+3. **Chat view:** Wire placeholder to `@ai-sdk/react` v3 `useChat()` with IPC transport, markdown rendering
+4. **Context view:** Query capture data from cowork.db via agents process, display recent activity
+5. **Settings view:** Wire stream toggles (on/off for each capture stream), service health status
+6. **Apps route:** Placeholder shell until Sprint 8 populates it
 
 **End-to-end validation — the full pipeline:**
 
@@ -510,19 +527,24 @@ Sprint 0: Mastra Spike
         │
         ▼
 Sprint 1: Schema Design ──────────┬──────────────┐
-  (no blockers)                   │              │
+  (COMPLETE)                      │              │
                                   │              │
 Sprint 2: IPC Contract ───────────┤              │
-  (no blockers)                   │              │
+  (COMPLETE)                      │              │
                                   │              │
 Sprint 3: Folder Restructure ─────┤              │
   (COMPLETE — PR #10)             │              │
                                   ▼              ▼
                     Sprint 4: Capture    Sprint 5: Agents
+                    (COMPLETE — PR #11)       │
+                         │                    │
+                         ▼                    │
+                    Sprint 4.5: Renderer      │
+                    Foundation                │
                          │                    │
                          └────────┬───────────┘
                                   ▼
-                    Sprint 6: Renderer + E2E Smoke Test
+                    Sprint 6: E2E Smoke Test
                                   │
                                   ▼
                     Sprint 7: Basic MCP Connection
@@ -531,11 +553,11 @@ Sprint 3: Folder Restructure ─────┤              │
                     Sprint 8: Basic Apps Runtime
 ```
 
-Sprints 0, 1, 2, and 3 are complete.
-Sprints 4-5 are unblocked by completed design contracts (Sprints 1-2) and foundation work (Sprint 3). Can run in parallel if there's a second pair of hands, otherwise sequential.
-Sprint 6 validates the core runtime. Sprint 7 adds external service connectivity. Sprint 8 adds the apps runtime.
+Sprints 0, 1, 2, 3, and 4 are complete.
+Sprint 4.5 is unblocked and ready for implementation. Sprint 5 can run in parallel with Sprint 4.5.
+Sprint 6 validates the core runtime end-to-end. Sprint 7 adds external service connectivity. Sprint 8 adds the apps runtime.
 
-**Parallel track:** M3 component library built independently, integrated in Sprint 6.
+**Parallel track:** M3 component library built independently, integrated in Sprint 4.5.
 
 ---
 
@@ -562,6 +584,8 @@ Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, sto
 ---
 
 ## Changelog
+
+**v16 (Feb 17, 2026):** Marked Sprint 4 (Capture Utility Process) as complete — PR #11 merged. Added Sprint 4.5 (Renderer Foundation + Component Library Integration) — split from Sprint 6 to unblock frontend development in parallel with Sprint 5. Sprint 6 renamed to "E2E Smoke Test" with component integration work removed (now in Sprint 4.5). Updated dependency graph, status summary, and parallel track references. Component count corrected from 15 to 19.
 
 **v15 (Feb 17, 2026):** Sprint 4 scope expansion to match implementation reality. Replaced 5-item summary with 13-item detailed work breakdown covering: event-driven activity stream (not poll-driven), full keystroke normalization and chunk format, clipboard hotkey detection with OS read and dedup, focus session derivation, startup crash recovery, stream config persistence, supervisor state machine with restart backoff and permission gate, setup permission wiring (replaced mocked checks with runtime APIs), simulation mode for deterministic testing, and remaining work (main process integration + validation). Added cross-reference to new capture-pipeline-architecture.md. Marked sprint as "In Progress" with branch reference.
 
