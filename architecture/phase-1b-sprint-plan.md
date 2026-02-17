@@ -208,7 +208,7 @@ Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Stru
 
 ### Sprint 4 (In Progress): Capture Utility Process
 
-**Repo:** coworkai-desktop (branch: `sprint-4`)
+**Repo:** coworkai-desktop (branch: `sprint-4`, PR: [#11](https://github.com/go2impact/coworkai-desktop/pull/11))
 **Blocks:** Sprint 6
 **Depends on:** Sprint 1 (schema) + Sprint 2 (IPC contract) + Sprint 3 (folder structure + libsql)
 **Reference:** [capture-pipeline-architecture.md](./capture-pipeline-architecture.md) — full behavioral specification for the capture pipeline
