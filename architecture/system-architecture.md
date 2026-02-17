@@ -180,8 +180,9 @@ User's desktop activity
 │  coworkai-activity-capture      │──→ Active app, window title, browser URL (ON by default)
 │  coworkai-keystroke-capture     │──→ Keystroke patterns (OFF, opt-in), clipboard (OFF, opt-in)
 │                                 │
-│  Activity buffer (5-slot queue) │──→ Bounded memory, auto-flush
-│  Keystroke chunker (debounce)   │──→ 1000-char flush, special-key triggers
+│  Activity buffer (5-slot queue) │──→ Bounded memory, auto-flush on focus change
+│  Keystroke chunker (debounce)   │──→ 1000-char chunk cap, special-key triggers
+│  Independent streams            │──→ Each self-contained, correlated by time
 │                                 │
 │  libsql (sync writes, WAL)     │──→ Writes to cowork.db
 └─────────────────────────────────┘
@@ -383,15 +384,17 @@ Active window detection, app identification, browser URL extraction.
 | Deep Chromium traversal | Recursive DFS through Accessibility tree for `AXWebArea` roles |
 | Architecture | In-process N-API addon, sub-millisecond. Rebuilt against Electron ABI. |
 
-### Capture Orchestration (from `coworkai-agent`)
+### Capture Orchestration (adapted from `coworkai-agent`)
 
-Reused from the existing codebase — proven buffer management and event chunking:
+Core buffering/chunking patterns are reused from the existing codebase. Key semantic change from the old architecture: **capture streams are independent peers, not parent-child.** Each stream writes self-contained rows (keystroke chunks carry their own `app_name`/`bundle_id`, clipboard events carry `source_app`). The `activity_session_id` on child tables is an optional correlation hint, not a structural dependency. Streams are correlated by overlapping timestamps at read time. See [CAPTURE_FLUSH_COUPLING_ANALYSIS.md](../decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md).
 
 | Component | What it does |
 |---|---|
 | Activity buffer | Bounded 5-slot queue with `autoFlushIfNeeded()`. Prevents unbounded memory growth during rapid window switching. |
-| Keystroke chunker | Debounce-driven flushing + special-key triggers + 1000-char activity flush. Tuned for real-world typing patterns. |
-| Clipboard capture | Hotkey detection (copy/cut/paste) in the keystroke stream → `readClipboard()` on hotkey. More efficient than polling. |
+| Keystroke chunker | Debounce-driven flushing + special-key triggers + 1000-char chunk cap. Each chunk carries denormalized app context (`app_name`, `bundle_id`). Activity session ending flushes any open chunk (orchestration-level coordination, not a DB constraint). |
+| Clipboard capture | Hotkey detection (copy/cut/paste) in the keystroke stream → `readClipboard()` on hotkey. Each event carries `source_app`. More efficient than polling. |
+
+See [capture-pipeline-architecture.md](./capture-pipeline-architecture.md) for the complete implementation-level specification including supervisor lifecycle, IPC protocol, flush triggers, constants, and simulation mode.
 
 ---
 
@@ -1204,6 +1207,10 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 ---
 
 ## Changelog
+
+**v1.5.7 (Feb 17, 2026):** Independent capture streams. Updated data flow diagram and capture orchestration section to reflect streams as independent peers with denormalized app context. Each chunk/event carries its own `app_name`; `activity_session_id` is an optional correlation hint, not a structural dependency. Cross-reference to CAPTURE_FLUSH_COUPLING_ANALYSIS.md.
+
+**v1.5.6 (Feb 17, 2026):** Capture flush semantics alignment. Replaced "1000-char activity flush" with decoupled chunk behavior: 1000-char cap flushes keystroke chunk only; activity session boundaries remain focus/idle/sleep/shutdown driven. Added explicit one-directional dependency wording (activity end flushes open chunk; chunk max-length never ends activity).
 
 **v1.5.5 (Feb 17, 2026):** Synced database and IPC blocker status with completed Sprint 1/2 design docs. Top tracker now shows 0 open blocker questions (inline observer benchmark still open). Updated "Open Architecture Questions" table language to reflect resolved state with direct links to `database-schema.md` and `ipc-contract.md`.
 

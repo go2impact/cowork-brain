@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v7 (reviewed) |
+| **Status** | Draft v9 (reviewed) |
 | **Last Updated** | 2026-02-17 |
 | **Owner** | Rustan |
 | **Sprint** | Phase 1B, Sprint 1 |
@@ -50,6 +50,16 @@ SQLite has no native datetime type. Two options: integer Unix timestamps (ms) or
 - Consistent with how Mastra stores its own timestamps
 
 Tradeoff: 24 bytes per timestamp vs 8 bytes for integer. Acceptable at our data volume.
+
+### Why capture streams are independent peers (not parent-child)
+
+product-features.md describes five independently toggleable capture streams. The database mirrors this: each capture table is a self-contained timeline. There is no enforced FK between capture tables — `activity_session_id` columns are optional correlation hints set by the orchestration layer when both streams are active, nullable when not.
+
+Each row carries its own app context (keystroke chunks have `app_name`/`bundle_id`, clipboard events have `source_app`). This means "what was typed in which app?" is answerable from the `keystroke_chunks` table alone — no JOIN to `activity_sessions` required.
+
+The old `coworkai-agent` codebase used a parent-child model (keystrokes were children of activities, linked by FK) because the sync pipeline shipped activities with nested keystrokes as payload containers. That sync pipeline is gone. The new architecture stores data locally — streams are peers correlated by overlapping timestamps, not parent-child entities.
+
+See [CAPTURE_FLUSH_COUPLING_ANALYSIS.md](../decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md) for the full reasoning.
 
 ### Why focus_sessions is a separate table
 
@@ -110,6 +120,8 @@ Owned by the Capture Utility process. Written via sync `libsql` API for high-fre
 
 The primary work-context table. Records which app and window the user is in, enabling the AI to answer "what was I just doing?" and power the Context Card's current-state display. Also the base data for focus detection and the `context:getRecentActivity` IPC handler that injects recent activity into every chat prompt. One row per continuous period in a single app/window — new row when user switches focus.
 
+Write semantics: insert row on session start (`ended_at = NULL`), keep `last_observed_at` updated while active, then finalize `ended_at` + `duration_ms` when the session ends.
+
 ```sql
 CREATE TABLE IF NOT EXISTS activity_sessions (
   id            TEXT PRIMARY KEY,
@@ -119,6 +131,7 @@ CREATE TABLE IF NOT EXISTS activity_sessions (
   browser_url   TEXT,                    -- extracted URL if app is a browser
   started_at    TEXT NOT NULL,           -- ISO 8601
   ended_at      TEXT,                    -- NULL while active
+  last_observed_at TEXT,                 -- heartbeat while active (window still present)
   duration_ms   INTEGER,                -- computed on end: ended_at - started_at
   created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -127,16 +140,20 @@ CREATE INDEX IF NOT EXISTS idx_activity_sessions_started_at ON activity_sessions
 CREATE INDEX IF NOT EXISTS idx_activity_sessions_app_name ON activity_sessions (app_name);
 ```
 
+Crash recovery note: on capture startup, any stale open `activity_sessions` rows (`ended_at IS NULL`) must be closed deterministically. Derive `ended_at` from the latest available signal (`last_observed_at`, `keystroke_chunks.ended_at`, `clipboard_events.captured_at`, `browser_sessions.ended_at`) clamped to recovery boot time; if no signals exist, close at `started_at`.
+
 ### keystroke_chunks
 
 **Product feature:** [Context § What the AI observes](../product/product-features.md#what-the-ai-observes) — Keystroke & input capture stream (default: off, opt-in).
 
-Captures raw input patterns to build communication profiles — "Draft a reply in my tone" requires the AI to know how the user writes. Opt-in because keystroke data is the most sensitive capture stream. Chunked (not per-keystroke) to reduce write frequency and limit raw-text exposure window. Flushed on debounce timeout, special-key trigger, or 1000-char limit.
+Captures raw input patterns to build communication profiles — "Draft a reply in my tone" requires the AI to know how the user writes. Opt-in because keystroke data is the most sensitive capture stream. Chunked (not per-keystroke) to reduce write frequency and limit raw-text exposure window. Flushed on debounce timeout, special-key trigger, 1000-char limit, or parent activity end.
 
 ```sql
 CREATE TABLE IF NOT EXISTS keystroke_chunks (
   id                    TEXT PRIMARY KEY,
-  activity_session_id   TEXT,            -- activity_sessions.id (same-process, not enforced as FK)
+  activity_session_id   TEXT,            -- optional correlation hint (not enforced as FK, nullable)
+  app_name              TEXT,            -- denormalized: which app was active when this was typed
+  bundle_id             TEXT,            -- denormalized: macOS bundle ID of the active app
   chunk_text            TEXT NOT NULL,   -- accumulated text for this chunk
   char_count            INTEGER NOT NULL,
   special_keys          TEXT,            -- JSON array: ['Enter', 'Tab', 'Cmd+C']
@@ -147,6 +164,7 @@ CREATE TABLE IF NOT EXISTS keystroke_chunks (
 
 CREATE INDEX IF NOT EXISTS idx_keystroke_chunks_started_at ON keystroke_chunks (started_at);
 CREATE INDEX IF NOT EXISTS idx_keystroke_chunks_activity ON keystroke_chunks (activity_session_id);
+CREATE INDEX IF NOT EXISTS idx_keystroke_chunks_app_name ON keystroke_chunks (app_name);
 ```
 
 ### clipboard_events
@@ -158,7 +176,7 @@ Enriches work context with what the user copies between apps. When a user copies
 ```sql
 CREATE TABLE IF NOT EXISTS clipboard_events (
   id                    TEXT PRIMARY KEY,
-  activity_session_id   TEXT,            -- activity_sessions.id
+  activity_session_id   TEXT,            -- optional correlation hint (not enforced as FK, nullable)
   direction             TEXT NOT NULL,   -- 'copy' or 'paste'
   content_type          TEXT NOT NULL,   -- 'text', 'image', 'file'
   content_text          TEXT,            -- text content (NULL for non-text)
@@ -180,7 +198,7 @@ Enables flow-state detection — "You've been in VS Code for 2 hours working on 
 ```sql
 CREATE TABLE IF NOT EXISTS focus_sessions (
   id                    TEXT PRIMARY KEY,
-  activity_session_id   TEXT,            -- activity_sessions.id (triggering session, same-process, not enforced as FK)
+  activity_session_id   TEXT,            -- optional correlation hint (triggering session, not enforced as FK)
   app_name              TEXT NOT NULL,
   bundle_id             TEXT,
   started_at            TEXT NOT NULL,
@@ -580,13 +598,16 @@ interface ActivitySession {
   browser_url: string | null;
   started_at: string;
   ended_at: string | null;
+  last_observed_at: string | null;
   duration_ms: number | null;
   created_at: string;
 }
 
 interface KeystrokeChunk {
   id: string;
-  activity_session_id: string | null;
+  activity_session_id: string | null;  // optional correlation hint
+  app_name: string | null;             // denormalized: active app when typed
+  bundle_id: string | null;            // denormalized: active app bundle ID
   chunk_text: string;
   char_count: number;
   special_keys: string | null;       // JSON: string[]
@@ -748,6 +769,10 @@ interface AppPermission {
 ---
 
 ## Changelog
+
+**v10 (Feb 17, 2026):** Independent capture streams. Added `app_name` and `bundle_id` to `keystroke_chunks` (denormalized from active activity, same pattern as `clipboard_events.source_app`). Updated all `activity_session_id` DDL comments across capture tables from FK-style references to "optional correlation hint (not enforced as FK, nullable)." Added `idx_keystroke_chunks_app_name` index. Added design note "Why capture streams are independent peers" explaining the product-driven rationale and departure from the old parent-child model. Updated KeystrokeChunk TypeScript type.
+
+**v9 (Feb 17, 2026):** Capture-session durability update. Added `activity_sessions.last_observed_at` heartbeat column for passive/read-only session recovery accuracy. Updated `activity_sessions` write semantics text (insert on start, finalize on end) and added crash-recovery close note for stale open sessions. Updated keystroke chunk flush semantics to include parent activity end, and added `last_observed_at` to TypeScript row type.
 
 **v8 (Feb 17, 2026):** Final review pass. No schema/DDL changes required. Updated document status metadata from `Draft v6` to `Draft v7` to match the latest applied review version.
 
