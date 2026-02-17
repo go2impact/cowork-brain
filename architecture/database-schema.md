@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v9 (reviewed) |
+| **Status** | Draft v11 |
 | **Last Updated** | 2026-02-17 |
 | **Owner** | Rustan |
 | **Sprint** | Phase 1B, Sprint 1 |
@@ -31,7 +31,7 @@ product-features.md lists 5 streams with different defaults (on/off), different 
 - Different retention windows per stream (keystroke data is more sensitive than window titles)
 - Clean query patterns — `context:getRecentActivity` can select from `activity_sessions` without filtering out keystroke data
 
-Alternative considered: single `capture_events` table with a `stream_type` discriminator column. Rejected — the columns differ too much between streams (keystroke chunks have `char_count` and `special_keys`, clipboard events have `direction` and `content_hash`, activity sessions have `bundle_id` and `browser_url`). A wide table with mostly-NULL columns would be harder to query and index.
+Alternative considered: single `capture_events` table with a `stream_type` discriminator column. Rejected — the columns differ too much between streams (keystroke chunks have `char_count` and interleaved control tokens in `chunk_text`, clipboard events have `direction` and `content_hash`, activity sessions have `bundle_id` and `browser_url`). A wide table with mostly-NULL columns would be harder to query and index.
 
 ### Why TEXT UUIDs over INTEGER autoincrement
 
@@ -146,7 +146,7 @@ Crash recovery note: on capture startup, any stale open `activity_sessions` rows
 
 **Product feature:** [Context § What the AI observes](../product/product-features.md#what-the-ai-observes) — Keystroke & input capture stream (default: off, opt-in).
 
-Captures raw input patterns to build communication profiles — "Draft a reply in my tone" requires the AI to know how the user writes. Opt-in because keystroke data is the most sensitive capture stream. Chunked (not per-keystroke) to reduce write frequency and limit raw-text exposure window. Flushed on debounce timeout, special-key trigger, 1000-char limit, or parent activity end.
+Captures raw input patterns to build communication profiles — "Draft a reply in my tone" requires the AI to know how the user writes. Opt-in because keystroke data is the most sensitive capture stream. Chunked (not per-keystroke) to reduce write frequency and limit raw-text exposure window. `chunk_text` is a single interleaved stream of printable characters and control tokens (e.g. `Hello<Backspace>o World<Enter>`) — no separate special-keys column. Flushed on debounce timeout (1200ms idle), 1000-char printable limit, activity boundary change, or worker stop.
 
 ```sql
 CREATE TABLE IF NOT EXISTS keystroke_chunks (
@@ -154,9 +154,8 @@ CREATE TABLE IF NOT EXISTS keystroke_chunks (
   activity_session_id   TEXT,            -- optional correlation hint (not enforced as FK, nullable)
   app_name              TEXT,            -- denormalized: which app was active when this was typed
   bundle_id             TEXT,            -- denormalized: macOS bundle ID of the active app
-  chunk_text            TEXT NOT NULL,   -- accumulated text for this chunk
-  char_count            INTEGER NOT NULL,
-  special_keys          TEXT,            -- JSON array: ['Enter', 'Tab', 'Cmd+C']
+  chunk_text            TEXT NOT NULL,   -- interleaved printable chars + control tokens: 'Hello<Backspace>o<Enter>'
+  char_count            INTEGER NOT NULL, -- printable characters only (control tokens excluded)
   started_at            TEXT NOT NULL,   -- first keystroke in chunk
   ended_at              TEXT NOT NULL,   -- last keystroke / flush trigger
   created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -171,13 +170,13 @@ CREATE INDEX IF NOT EXISTS idx_keystroke_chunks_app_name ON keystroke_chunks (ap
 
 **Product feature:** [Context § What the AI observes](../product/product-features.md#what-the-ai-observes) — Clipboard monitoring stream (default: off, opt-in).
 
-Enriches work context with what the user copies between apps. When a user copies a Zendesk ticket number in one app and pastes it in Slack, the AI can connect those activities. Opt-in because clipboard content can contain sensitive data (credentials, personal messages). `content_hash` enables dedup without storing duplicate content. Captured on copy/paste hotkey detection.
+Enriches work context with what the user copies between apps. When a user copies a Zendesk ticket number in one app and pastes it in Slack, the AI can connect those activities. Opt-in because clipboard content can contain sensitive data (credentials, personal messages). `content_hash` enables dedup without storing duplicate content. Captured on copy/paste/cut hotkey detection (Cmd/Ctrl+C/V/X).
 
 ```sql
 CREATE TABLE IF NOT EXISTS clipboard_events (
   id                    TEXT PRIMARY KEY,
   activity_session_id   TEXT,            -- optional correlation hint (not enforced as FK, nullable)
-  direction             TEXT NOT NULL,   -- 'copy' or 'paste'
+  direction             TEXT NOT NULL,   -- 'copy', 'paste', or 'cut'
   content_type          TEXT NOT NULL,   -- 'text', 'image', 'file'
   content_text          TEXT,            -- text content (NULL for non-text)
   content_hash          TEXT,            -- SHA-256 for dedup
@@ -608,9 +607,8 @@ interface KeystrokeChunk {
   activity_session_id: string | null;  // optional correlation hint
   app_name: string | null;             // denormalized: active app when typed
   bundle_id: string | null;            // denormalized: active app bundle ID
-  chunk_text: string;
-  char_count: number;
-  special_keys: string | null;       // JSON: string[]
+  chunk_text: string;                 // interleaved printable chars + control tokens
+  char_count: number;                 // printable characters only
   started_at: string;
   ended_at: string;
   created_at: string;
@@ -619,7 +617,7 @@ interface KeystrokeChunk {
 interface ClipboardEvent {
   id: string;
   activity_session_id: string | null;
-  direction: 'copy' | 'paste';
+  direction: 'copy' | 'paste' | 'cut';
   content_type: 'text' | 'image' | 'file';
   content_text: string | null;
   content_hash: string | null;
@@ -769,6 +767,8 @@ interface AppPermission {
 ---
 
 ## Changelog
+
+**v11 (Feb 17, 2026):** Sync with desktop implementation (capture-pipeline-reference.md). (1) Removed `special_keys` column from `keystroke_chunks` DDL and TypeScript type — the desktop worker drops this column as legacy; all key data (printable and control tokens) is interleaved in `chunk_text` as a single ordered stream. Updated table description and design note accordingly. (2) Added `'cut'` to `clipboard_events.direction` — desktop detects `Cmd/Ctrl+X` alongside C/V. Updated DDL comment, table description, and TypeScript type.
 
 **v10 (Feb 17, 2026):** Independent capture streams. Added `app_name` and `bundle_id` to `keystroke_chunks` (denormalized from active activity, same pattern as `clipboard_events.source_app`). Updated all `activity_session_id` DDL comments across capture tables from FK-style references to "optional correlation hint (not enforced as FK, nullable)." Added `idx_keystroke_chunks_app_name` index. Added design note "Why capture streams are independent peers" explaining the product-driven rationale and departure from the old parent-child model. Updated KeystrokeChunk TypeScript type.
 
