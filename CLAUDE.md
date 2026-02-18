@@ -75,7 +75,7 @@ Changes in one doc often require updates to others. Watch for ripple effects:
 - Model change → update `architecture/llm-architecture.md` + `strategy/llm-strategy.md` + decision log
 - Price change → update `strategy/` + `gtm/` + decision log
 - UI/interaction change → update `design/design-system.md` + decision log
-- Stack/dependency change (e.g., database, native addons) → grep old name across entire repo, update: `CLAUDE.md`, `architecture/`, `decisions/DESKTOP_SALVAGE_PLAN.md`, `decisions/decision-log.md`, `product/product-features.md`. Do NOT update `decisions/COWORKAI_TECHNICAL_REFERENCE.md` — it documents the existing codebase, not the target.
+- Stack/dependency change (e.g., database, native addons) → grep old name across entire repo, update: `CLAUDE.md`, `architecture/`, `decisions/decision-log.md`, `product/product-features.md`. Do NOT update `decisions/COWORKAI_TECHNICAL_REFERENCE.md` — it documents the existing codebase, not the target.
 
 ## Review Ownership
 

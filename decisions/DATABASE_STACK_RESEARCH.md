@@ -4,13 +4,13 @@
 |---|---|
 | **Status** | Research complete (v2) — **recommends libsql for everything** |
 | **Last Updated** | 2026-02-16 |
-| **Related** | [DESKTOP_SALVAGE_PLAN.md](./DESKTOP_SALVAGE_PLAN.md), [decision-log.md](./decision-log.md) (SQLite-vec over LanceDB entry) |
+| **Related** | [system-architecture.md](../architecture/system-architecture.md), [decision-log.md](./decision-log.md) (SQLite-vec over LanceDB entry) |
 
 ---
 
 ## Context
 
-The [Desktop Salvage Plan](./DESKTOP_SALVAGE_PLAN.md) specifies `better-sqlite3` + `sqlite-vec` as the database stack. However, our AI agent orchestration layer (Mastra.ai) natively supports libsql via `@mastra/libsql`. If libsql can replace both `better-sqlite3` and `sqlite-vec`, we unify the database stack into a single dependency that Mastra agents can directly read/write.
+The original salvage plan specified `better-sqlite3` + `sqlite-vec` as the database stack. However, our AI agent orchestration layer (Mastra.ai) natively supports libsql via `@mastra/libsql`. If libsql can replace both `better-sqlite3` and `sqlite-vec`, we unify the database stack into a single dependency that Mastra agents can directly read/write.
 
 ---
 

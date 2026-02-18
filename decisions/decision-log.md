@@ -267,7 +267,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - ~~Replace custom native addons (Opus): Originally accepted as "same OS APIs."~~ **Reversed after deep research.** Open-source replacements have critical gaps (no character mapping, Electron deadlock, no Windows URLs). Gemini was right. Now rejected.
 - ~~Archive `coworkai-agent` (original decision):~~ **Reversed.** The agent contains reusable capture orchestration that would need to be rebuilt. Gut the tracking code, keep the capture plumbing.
 
-**Full writeup:** [`decisions/DESKTOP_SALVAGE_PLAN.md`](DESKTOP_SALVAGE_PLAN.md)
+**Full writeup:** [system-architecture.md § Codebase Origin](../architecture/system-architecture.md#codebase-origin)
 
 **Approved by:** Rustan
 

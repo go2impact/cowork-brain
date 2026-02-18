@@ -37,7 +37,7 @@ Last verified: 2026-02-17
 ## Key Decisions
 
 - **Desktop framework:** Electron (Swift and Tauri evaluated and rejected)
-- **Salvage plan:** What gets kept vs. gutted — see [DESKTOP_SALVAGE_PLAN.md](decisions/DESKTOP_SALVAGE_PLAN.md)
+- **Codebase origin & salvage decisions:** [system-architecture.md § Codebase Origin](architecture/system-architecture.md#codebase-origin)
 - **Target architecture:** [system-architecture.md](architecture/system-architecture.md)
 
 ## Documentation Status

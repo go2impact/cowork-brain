@@ -7,7 +7,7 @@
 | **Owner** | Rustan |
 | **Prerequisite** | Phase 1A complete (coworkai-desktop PR #8) |
 | **Goal** | Working Electron app with two utility processes, capture writing to libsql, basic chat with recent-activity context (direct SQL, no embeddings), basic MCP connection (agent can call tools), apps runtime with read lane SDK (`cowork:read`), sidecar folder structure |
-| **Related** | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md), [system-architecture.md](./system-architecture.md), [Spike PR (DO NOT MERGE)](https://github.com/go2impact/coworkai-desktop/pull/9) |
+| **Related** | [system-architecture.md](./system-architecture.md), [Spike PR (DO NOT MERGE)](https://github.com/go2impact/coworkai-desktop/pull/9) |
 
 ---
 
@@ -25,7 +25,7 @@ From [system-architecture.md](./system-architecture.md) — Phase 1B cannot ship
 
 ## Phase Acceleration Note
 
-This sprint plan pulls the agents utility skeleton, basic chat, basic MCP, apps runtime, and renderer foundation forward into Phase 1B. [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) originally placed agent runtime in Phase 3 and product surfaces in Phase 5. The rationale: without a basic chat round-trip and working app runtime, there's no way to validate that the multi-process architecture actually works end-to-end. A capture process writing to a database with no consumer isn't a useful milestone. The salvage plan's phase definitions have been updated to reflect this expanded Phase 1B scope.
+This sprint plan pulls the agents utility skeleton, basic chat, basic MCP, apps runtime, and renderer foundation forward into Phase 1B. The original salvage plan placed agent runtime in Phase 3 and product surfaces in Phase 5. The rationale: without a basic chat round-trip and working app runtime, there's no way to validate that the multi-process architecture actually works end-to-end. A capture process writing to a database with no consumer isn't a useful milestone. Phase definitions updated to reflect this expanded Phase 1B scope (see [system-architecture.md § Execution Phases](./system-architecture.md#execution-phases)).
 
 Embedding pipeline, full RAG, complexity router, advanced MCP features, and automations remain in later phases.
 

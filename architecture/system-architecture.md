@@ -14,7 +14,7 @@
 Inline: **Observer model choice** (line 612, needs benchmarking)
 
 **This doc consolidates decisions from:**
-- [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) — what we keep/gut, directory structure, execution phases
+- DESKTOP_SALVAGE_PLAN.md (consolidated into this doc — see [Codebase Origin](#codebase-origin) and [Execution Phases](#execution-phases))
 - [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md) — why libsql
 - [llm-architecture.md](./llm-architecture.md) — LLM stack, routing, memory, embeddings
 - [product-features.md](../product/product-features.md) — six features that define the product surface
@@ -998,19 +998,21 @@ App JS → window.cowork.context.activeWindow()
   → result returns through same chain
 ```
 
-No network exposure, no port, no auth tokens. Main remains a transport relay only.
+No custom port, no auth tokens for platform communication. Main remains a transport relay only.
 
 ### Platform SDK
 
-Apps see `window.cowork.*` injected via the app's preload script. **Apps never talk to MCP servers, LLMs, or external services directly.** In Phase 1B, apps get read-only context/data methods routed through `cowork:read`.
+Apps see `window.cowork.*` injected via the app's preload script. In Phase 1B, apps get read-only platform context/data methods routed through `cowork:read`.
+
+**Apps can make their own external API calls** (Gemini, OpenAI, etc.) using standard web APIs (`fetch`, `XMLHttpRequest`) with their own API keys. The sandbox blocks Node.js/Electron APIs and direct DB access, not network access — apps are web pages. A Google AI Studio export calling the Gemini API with its own key works as-is.
+
+**Apps cannot access platform internals:** MCP server connections, platform-managed API keys/OAuth tokens, agent reasoning, database, cross-app data, or Node.js/Electron APIs.
 
 | Namespace | Methods | What it does |
 |---|---|---|
 | `context` | `activeWindow()`, `recentActivity(opts?)`, `currentTime()` | Focused app/window, recent activity summary, local time |
 | `user` | `preferences()`, `profile()` | User settings/profile used for app personalization |
 | `data` | `conversations(opts?)`, `search(query, opts?)` | App-scoped conversation history and semantic search over activity |
-
-The SDK does NOT expose: `callTool`, `listTools`, `getAppConfig`, raw MCP protocol, OAuth tokens, API keys, agent internals, cross-app data, or Node.js/Electron APIs.
 
 ### App Access Controls
 
@@ -1036,18 +1038,18 @@ App calls window.cowork.data.conversations({ limit: 50 })
 
 **Track 1 — Template apps (happy path):** We publish a Cowork.ai-compatible Google AI Studio template. Apps built from it are guaranteed to work. The template:
 - Uses `window.cowork.{context,user,data}.*` for platform data access
-- Avoids direct Gemini/OpenRouter calls
+- May include its own Gemini API calls with its own key (app-managed, not platform-managed)
 - Can include optional `cowork.manifest.json` metadata for installer/display copy
 - Has a clean React structure that esbuild bundles without issues
 
-**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. Exports that assume direct LLM API calls or app-level tool execution must be adapted to the read-lane SDK for Phase 1B compatibility.
+**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. Generic exports work as standalone web apps (their own Gemini API calls function normally in the sandbox). Adding platform context via the read-lane SDK is optional but recommended.
 
 ### Design Decisions (Resolved)
 
 | Question | Decision | Reasoning |
 |---|---|---|
 | Preprocessing pipeline | **esbuild bundle** | Fast (~10-100ms). Handles TSX/TS natively. Produces single output file that resolves all imports. Solves preprocessing + import resolution in one step. |
-| Gemini API proxy | **Not needed in Phase 1B.** App runtime is read-lane-only; apps don't execute platform reasoning/tools directly. | Eliminates a subsystem that is unnecessary for read-only app data access. |
+| Gemini API proxy | **Not needed.** Apps make their own Gemini API calls directly with their own keys. | No proxy layer needed — apps are web pages with normal network access. Platform doesn't manage or meter app LLM usage. |
 | Import resolution | **esbuild bundles deps** — no import maps needed. esbuild resolves bare specifiers during bundling. | Falls out of the esbuild decision. No runtime import resolution, no CDN dependency, works offline. |
 | Manifest authoring | **Optional metadata manifest.** No app tool-permission grants in Phase 1B read lane. | Keeps install UX simple while still allowing template metadata and disclosure copy improvements. |
 
@@ -1228,13 +1230,93 @@ On 16GB → ~13GB usable → GREEN for DeepSeek-R1-8B (~5.5GB model + ~2GB KV ca
 | Agent orchestration | Mastra.ai via `@mastra/libsql` | Native libsql integration. Embedded in Electron utility process (proven via PoC spike, Feb 17 2026). | [phase-1b-sprint-plan.md — Sprint 0](./phase-1b-sprint-plan.md#sprint-0-complete-mastra-utility-process-spike) |
 | Embeddings | Qwen3-Embedding-0.6B via Ollama | ~500MB RAM, strong Tagalog+EN, stored in libsql built-in vector search | [llm-architecture.md](./llm-architecture.md) |
 | Audio | Whisper via Core ML (ANE) | Dedicated hardware, doesn't compete with GPU/CPU | [llm-architecture.md](./llm-architecture.md) |
-| Codebase strategy | Gut existing repos in place | No old product to maintain. Keep packaging, capture, orchestration. Kill tracking. | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) |
+| Codebase strategy | Gut existing repos in place | No old product to maintain. Keep packaging, capture, orchestration. Kill tracking. | [Codebase Origin](#codebase-origin) (this doc) |
+
+---
+
+## Codebase Origin
+
+Cowork.ai Sidecar is built on top of four existing repositories from a previous employee activity monitoring product. The product direction reversed — from employer surveillance to worker-owned AI assistant — but the infrastructure (packaging, native addons, capture orchestration) carries over.
+
+### Repo Disposition
+
+| Repo | Action | What survived |
+|---|---|---|
+| `coworkai-desktop` | **Gutted in place** | Electron Forge config (packaging, signing, publishing, auto-updater), macOS/Windows code signing, S3 publisher, environment profiles, ASAR unpacking, native resolution logic, React + Vite + Tailwind build tooling. Killed: tracker IPC, auth IPC, timer IPC, sync config, media capture configs, entire renderer. |
+| `coworkai-agent` | **Abandoned (reference only)** | Repo is no longer used. Capture orchestration patterns were ported into `coworkai-desktop`: activity buffer management (bounded 5-slot queue), keystroke chunking (debounce + special-key triggers + 1000-char cap), clipboard hotkey detection, WAL setup pattern, config-driven capture toggling. Everything else (timer, sync, media, employer identity) was dropped. |
+| `coworkai-activity-capture` | **Kept as-is** | Custom C++ N-API addon. 3-tier macOS app detection, Accessibility API browser URL fallback, deep Chromium traversal, full Windows COM UI Automation. No viable open-source replacement. |
+| `coworkai-keystroke-capture` | **Kept as-is** | Custom C++ N-API addon. Full UTF-8 character mapping, key repeat detection, CapsLock state, Electron-safe threading. No viable open-source replacement (uiohook-napi has an unresolved Electron deadlock). |
+
+No fork was needed — there is no old product to maintain. CI/CD pipelines, signing certificates, bundle ID, team access, and git history all carry over.
+
+### What was killed and why
+
+The previous product sent activity data to an employer cloud. Everything related to that model was removed:
+
+- **Sync pipeline** — Employer cloud sync scheduling, batch retry, `sync` flag columns
+- **Timer module** — Midnight splitting, daily aggregation, session tracking ("not a time tracker")
+- **Employer auth** — `AUTH/SET_USER` channel, employer-scoped `user_id` isolation
+- **Media capture** — Screen, audio, video modules (screen recording deferred to v0.2)
+- **Tracker IPC** — `TRACKER/START`, `TRACKER/STOP` channels
+- **Entire renderer** — Complete rewrite for sidecar product surface
+
+---
+
+## Execution Phases
+
+Phased delivery from salvage to full product. Phase 1A is complete. Phase 1B is active. Phases 2-5 are rough scope buckets, not detailed sprint plans.
+
+### Phase 1A: Local Gut/Unblock (Complete)
+
+Gutted `coworkai-desktop` enough to restore local build/run loop. Removed blocked dependencies, tracker/auth/agent runtime coupling, replaced renderer with minimal shell. Validated `npm install`, `tsc`, `rebuild`, `start`. PR #8.
+
+### Phase 1B: Core Runtime Foundation (Active)
+
+Full sprint plan: [phase-1b-sprint-plan.md](./phase-1b-sprint-plan.md)
+
+- Target folder architecture (`core/`, `electron/`, `renderer/`, `shared/`)
+- Typed IPC contract and process boundaries
+- Capture utility process with native addons writing to libsql
+- Agents utility process with Mastra.ai runtime
+- Basic chat with activity context (direct SQL, no embeddings)
+- Basic MCP connection (API key auth, agent calls tools)
+- Apps runtime (sandboxed WebContentsView, template apps, read lane SDK)
+- Renderer foundation: SideSheet + detail canvas, Chat/Context/Apps/Settings views
+
+### Phase 2: Context + Data Layer
+
+- Embedding/vector storage pipeline
+- Full RAG retrieval (vector search, backfill, observation anchors)
+- Full complexity router (local/cloud brain routing logic)
+- Observational memory compression
+- Retention enforcement
+
+### Phase 3: MCP Advanced + Agent Runtime Hardening
+
+- OAuth MCP auth (Phase 1B uses API key auth only)
+- MCP advanced features: orphan cleanup, notification-driven invalidation, per-call abort
+- Approval gate framework and execution audit model
+- Proactive notifications
+- `onMessage()` push channel from platform to apps
+
+### Phase 4: MCP Browser + Automations
+
+- Playwright execution service in isolated child process
+- Unified execution timeline (MCP + browser + user interventions)
+- Automation trigger engine and run logs
+
+### Phase 5: Product Surfaces + App Ecosystem
+
+- Full App Gallery UI
+- Generic AI Studio export support (Phase 1B supports template apps only)
+- Privacy controls and per-stream consent surfaces
+- Onboarding flow (hardware detection & brain choice)
 
 ---
 
 ## Open Architecture Questions
 
-Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md). All blocking items below are now resolved.
+All blocking items below are now resolved.
 
 | # | Question | Impact |
 |---|---|---|
@@ -1247,7 +1329,7 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 - **App Gallery hosting** → No hosted gallery for v0.1. Users upload zip files, Cowork renders locally.
 - **Bundle ID rename** → No rename. Keep existing coworkai bundle ID.
 - **MCP install registry** → N/A. MCP servers are bundled, not user-installed. No registry needed.
-- **App-to-platform transport** → Preload IPC relay with read lane. Apps call `window.cowork.{context,user,data}.*` → preload injects trusted `appId` → `ipcRenderer.invoke('cowork:read', ...)` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. No network exposure, no port, no auth tokens.
+- **App-to-platform transport** → Preload IPC relay with read lane. Apps call `window.cowork.{context,user,data}.*` → preload injects trusted `appId` → `ipcRenderer.invoke('cowork:read', ...)` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. Apps can make their own external API calls (Gemini, etc.) with their own keys — the sandbox blocks platform internals, not network access.
 - **Refusal message exclusion** → Custom Mastra `MemoryProcessor`. A `RefusalFilter` processor strips refusal messages from the context window before sending to the LLM, while leaving them in storage for UI display. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface (same pattern as the built-in `ToolCallFilter`) runs after fetch and before LLM — exactly the right hook.
 - **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). Phase 1B app runtime is read-lane-only (`cowork:read`) with install-time disclosure and no app-level tool execution.
 
@@ -1259,7 +1341,7 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 |---|---|
 | LLM stack deep-dive (routing, budgets, billing) | [llm-architecture.md](./llm-architecture.md) |
 | Product features & capabilities | [product-features.md](../product/product-features.md) |
-| Salvage plan & execution phases | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) |
+| Execution phases & codebase origin | [Execution Phases](#execution-phases) / [Codebase Origin](#codebase-origin) (this doc) |
 | Context pipeline (how data reaches the agent and apps) | [Context Pipeline](#context-pipeline) (this doc) |
 | Design system & interaction model | [design-system.md](../design/design-system.md) |
 | Cost models & pricing | [llm-strategy.md](../strategy/llm-strategy.md) |
@@ -1267,6 +1349,8 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 ---
 
 ## Changelog
+
+**v1.7 (Feb 18, 2026):** Consolidated `DESKTOP_SALVAGE_PLAN.md` into this doc. Added Codebase Origin section (repo disposition, what survived from each repo, what was killed and why) and Execution Phases section (Phase 1A-5 definitions). Corrected Apps Runtime network access model: apps CAN make their own external API calls (Gemini, etc.) with their own keys — the sandbox blocks platform internals, not network access. Updated Platform SDK, Two-Track Strategy, Gemini API proxy decision, and resolved items to reflect this. `DESKTOP_SALVAGE_PLAN.md` deleted.
 
 **v1.6 (Feb 18, 2026):** Consolidated `agent-context-pipeline.md` into this doc. Expanded Context Pipeline section with full two-layer runtime detail (Layer 1 automatic context injection + Layer 2 tool execution), agent chat flow diagram, app read lane summary with cross-reference to Apps Runtime, rejected alternatives rationale (why not agent-mediated, why not callTool, why not MCP), and "apps get data, not tools" policy. `agent-context-pipeline.md` deleted — all content now lives here or in ipc-contract.md.
 
