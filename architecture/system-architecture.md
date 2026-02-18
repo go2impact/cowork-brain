@@ -654,9 +654,59 @@ Once embedded, this data is retrievable via the [RAG Context Assembly](#rag-cont
 
 ## Context Pipeline
 
-How data reaches the Cowork agent and third-party apps at runtime. Two layers work together for the agent — automatic injection (application code, every message) and agent tools (agent decides when to call). Third-party apps use a separate typed **read lane** through `window.cowork.{context,user,data}.*` mapped to `cowork:read` via preload IPC relay.
+How data reaches the Cowork agent and third-party apps at runtime. Two distinct lanes — the agent path (full reasoning) and the app read lane (data only).
 
-**Full specification:** [agent-context-pipeline.md](./agent-context-pipeline.md) — defines the two-layer agent path, app read-lane protocol (`cowork:read`), trusted app identity injection (`appId` from session partition), bounded-risk model, and required install-time disclosure for app data access.
+### Agent Path: Two-Layer Runtime
+
+The agent path handles user chat via `chat:sendMessage`. Two layers work together — they are complementary, not alternatives. Layer 1 gives the agent awareness of what's happening. Layer 2 gives it the ability to take action.
+
+**Layer 1: Automatic Context Injection**
+
+| | |
+|---|---|
+| Trigger | Every `chat:sendMessage` request |
+| Location | Agents utility request path, before model invocation |
+| Responsibility | Build a lightweight runtime context snapshot and attach it to agent instructions |
+| Property | Deterministic application behavior (not model-decided) |
+
+Layer 1 runs on every message. The agents utility queries recent capture data from `cowork.db` and injects it as system context before the model sees the user's message. This is how chat becomes activity-aware without embeddings — direct SQL before each agent call.
+
+**Layer 2: Tool Execution**
+
+| | |
+|---|---|
+| Trigger | Model emits a tool call during agent reasoning |
+| Location | Agents utility tool execution layer |
+| Responsibility | Execute platform and MCP tools, return structured results |
+| Property | On-demand, driven by agent reasoning only |
+
+Layer 2 fires only when the agent decides it needs to act. The agent can invoke platform tools (context queries, notifications) and MCP tools (Zendesk, Gmail, Slack) during a single reasoning turn.
+
+**Agent chat flow:**
+
+```
+Renderer (Main UI)
+  → ipcRenderer.invoke('chat:sendMessage', payload)
+  → Main process relay
+  → Agents utility:
+       1) Apply Layer 1 context injection (query capture data → system context)
+       2) Run agent invocation (model reasoning)
+       3) Agent may invoke Layer 2 tools (platform + MCP)
+       4) Stream response chunks back via MessagePort
+  → Renderer receives streamed output
+```
+
+Transport: `chat:sendMessage` returns immediately with `{ threadId }`. Response content streams separately via `chat:streamPort` MessagePort with ACK gate. See [ipc-contract.md](./ipc-contract.md) for channel schemas and streaming protocol.
+
+### App Read Lane
+
+Third-party apps use a separate typed read lane through `window.cowork.{context,user,data}.*` mapped to a single `cowork:read` IPC channel. No agent reasoning, no tool execution, just deterministic data retrieval. See [Apps Runtime](#apps-runtime) for the full SDK surface, access controls, and installation flow.
+
+**Policy: apps get data, not tools.** Tool execution is reserved for the agent. App write/action capabilities are out of scope for Phase 1B — if needed later, the design will be driven by concrete app use cases.
+
+### Why Two Separate Lanes
+
+Agent-mediated app access was evaluated and rejected — non-deterministic responses, slow (LLM round-trip per call), and expensive (tokens for every data fetch). Direct tool calls (`callTool`) were rejected — tight coupling to internal tool surface, conflates reads with writes. MCP protocol for apps was rejected — designed for LLM-to-service communication, adds unnecessary protocol overhead for simple data lookups. The typed read lane gives apps a normal JavaScript API: discoverable via TypeScript types, fast (no LLM), predictable (deterministic queries), and frictionless (no permission grants for reads).
 
 ---
 
@@ -1210,13 +1260,15 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 | LLM stack deep-dive (routing, budgets, billing) | [llm-architecture.md](./llm-architecture.md) |
 | Product features & capabilities | [product-features.md](../product/product-features.md) |
 | Salvage plan & execution phases | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) |
-| Context pipeline (how data reaches the agent and apps) | [agent-context-pipeline.md](./agent-context-pipeline.md) |
+| Context pipeline (how data reaches the agent and apps) | [Context Pipeline](#context-pipeline) (this doc) |
 | Design system & interaction model | [design-system.md](../design/design-system.md) |
 | Cost models & pricing | [llm-strategy.md](../strategy/llm-strategy.md) |
 
 ---
 
 ## Changelog
+
+**v1.6 (Feb 18, 2026):** Consolidated `agent-context-pipeline.md` into this doc. Expanded Context Pipeline section with full two-layer runtime detail (Layer 1 automatic context injection + Layer 2 tool execution), agent chat flow diagram, app read lane summary with cross-reference to Apps Runtime, rejected alternatives rationale (why not agent-mediated, why not callTool, why not MCP), and "apps get data, not tools" policy. `agent-context-pipeline.md` deleted — all content now lives here or in ipc-contract.md.
 
 **v1.5.9 (Feb 17, 2026):** Aligned Apps Runtime and Context Pipeline sections with the read-lane architecture in `agent-context-pipeline.md` v8 and `ipc-contract.md` v6. Replaced app `callTool`/permission-gate contract with typed read-only SDK (`window.cowork.{context,user,data}.*`) over `cowork:read`. Added explicit install-time disclosure requirement, trusted preload `appId` injection/scoping notes, updated feature-to-infrastructure mapping, and updated resolved-items wording for app transport/runtime design.
 

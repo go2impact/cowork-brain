@@ -49,7 +49,7 @@ The channel inventory wasn't invented — it was extracted from four existing do
 
 **`activityRecord` is a flat object with optional fields, not a discriminated union per activity type.** Simpler for the Context view to render — it just maps over a list. The `type` field tells the UI which icon/layout to use. The alternative (separate `WindowActivity`, `FocusActivity`, etc. types) would force the renderer to handle each variant, which isn't needed for a list view.
 
-**`apps:*` channels are main-renderer-only (management).** App lifecycle management (`apps:install`, `apps:list`, `apps:remove`) is used by the main renderer's Apps view. The previous design had `apps:callTool` / `apps:listTools` / `apps:getAppConfig` shared between the main renderer and app preloads — that dual-caller pattern is superseded. Sandboxed apps now use the read lane (`cowork:read`) instead of `apps:*` channels. See [agent-context-pipeline.md](./agent-context-pipeline.md) for the full rationale on why apps get a typed read-only SDK instead of direct tool access.
+**`apps:*` channels are main-renderer-only (management).** App lifecycle management (`apps:install`, `apps:list`, `apps:remove`) is used by the main renderer's Apps view. The previous design had `apps:callTool` / `apps:listTools` / `apps:getAppConfig` shared between the main renderer and app preloads — that dual-caller pattern is superseded. Sandboxed apps now use the read lane (`cowork:read`) instead of `apps:*` channels. See [system-architecture.md — Context Pipeline](./system-architecture.md#context-pipeline) for the full rationale on why apps get a typed read-only SDK instead of direct tool access.
 
 **MCP `apiKey` is in the connect request, not a separate channel.** It's encrypted via Electron `safeStorage` at the main process layer before persisting to libsql. The renderer sends the plaintext key once; main encrypts and stores it. No separate "store credential" flow needed for Phase 1B (API key auth only).
 
@@ -124,7 +124,7 @@ All channels across all phases. Phase 1B implements everything except `browser:*
 
 **Note on `apps:*` scope change:** `apps:callTool`, `apps:listTools`, and `apps:getAppConfig` were previously designed as dual-caller channels (main renderer + app preload). These are now **deferred** — app preloads use the read lane (`cowork:read`) instead. The schemas are retained for potential future use but are not exposed to sandboxed apps in Phase 1B. `apps:install`, `apps:list`, and `apps:remove` remain main-renderer-only channels for app lifecycle management.
 
-**Note on `cowork:read`:** Single channel for all app read lane requests. The app preload maps typed SDK methods (`window.cowork.context.*`, etc.) to `cowork:read` invocations with namespace + method dispatch. See [App Preload SDK](#app-preload-sdk) and [agent-context-pipeline.md](./agent-context-pipeline.md) for the full protocol.
+**Note on `cowork:read`:** Single channel for all app read lane requests. The app preload maps typed SDK methods (`window.cowork.context.*`, etc.) to `cowork:read` invocations with namespace + method dispatch. See [App Preload SDK](#app-preload-sdk) and [system-architecture.md — Context Pipeline](./system-architecture.md#context-pipeline) for the full protocol.
 
 ---
 
@@ -607,7 +607,7 @@ export type AppsRemoveResponse = z.infer<typeof appsRemoveResponseSchema>;
 
 #### `apps:callTool` (Deferred)
 
-Execute an MCP tool on behalf of an app. **Deferred from Phase 1B app SDK.** Schema retained for potential future use. Apps use the read lane (`cowork:read`) for data access in Phase 1B. See [agent-context-pipeline.md](./agent-context-pipeline.md) § App Access Model.
+Execute an MCP tool on behalf of an app. **Deferred from Phase 1B app SDK.** Schema retained for potential future use. Apps use the read lane (`cowork:read`) for data access in Phase 1B. See [system-architecture.md — Context Pipeline](./system-architecture.md#context-pipeline).
 
 ```ts
 export const appsCallToolRequestSchema = z.object({
@@ -752,7 +752,7 @@ export type SystemRetryResponse = z.infer<typeof systemRetryResponseSchema>;
 
 App read lane. Single channel used by sandboxed app preloads to access platform data. All requests are read-only and default-allowed (no permission grants required). Routes through main to agents utility.
 
-For the full protocol design, rationale, and SDK surface definition, see [agent-context-pipeline.md](./agent-context-pipeline.md) § App Read Lane Protocol.
+For the full protocol design, rationale, and SDK surface definition, see [system-architecture.md — Context Pipeline](./system-architecture.md#context-pipeline) and [Apps Runtime](./system-architecture.md#apps-runtime).
 
 #### `cowork:read`
 
@@ -952,7 +952,7 @@ The ACK gate prevents the agents process from streaming before the renderer has 
 
 Sandboxed apps get a typed, read-only `window.cowork.*` API via `app-preload.ts`. This preload maps SDK methods to the `cowork:read` IPC channel with automatic `appId` injection.
 
-For the full protocol rationale (why typed SDK, why not `callTool`, why not MCP), see [agent-context-pipeline.md](./agent-context-pipeline.md) § App Read Lane Protocol.
+For the full protocol rationale (why typed SDK, why not `callTool`, why not MCP), see [system-architecture.md — Why Two Separate Lanes](./system-architecture.md#why-two-separate-lanes).
 
 ```ts
 // app-preload.ts (conceptual — not full implementation)
@@ -1120,7 +1120,7 @@ These helpers are implemented in Sprint 3 (folder restructure) or Sprint 4/5 (wh
 
 ## Changelog
 
-**v6 (Feb 17, 2026):** App read lane integration. Added `cowork:read` channel with namespace dispatch schema and per-method reference table. Deferred `apps:callTool`, `apps:listTools`, `apps:getAppConfig` from Phase 1B app SDK — schemas retained for future use but not exposed to sandboxed apps. Rewrote App Preload SDK section: replaced `callTool`/permission-gate model with typed read-only SDK (`window.cowork.{context,user,data}.*`) mapping to single `cowork:read` IPC channel. Updated channel inventory, design notes (dual-caller → main-renderer-only), `IpcChannels` constant, and `IpcHandlerMap`. Aligns with [agent-context-pipeline.md](./agent-context-pipeline.md) v7.
+**v6 (Feb 17, 2026):** App read lane integration. Added `cowork:read` channel with namespace dispatch schema and per-method reference table. Deferred `apps:callTool`, `apps:listTools`, `apps:getAppConfig` from Phase 1B app SDK — schemas retained for future use but not exposed to sandboxed apps. Rewrote App Preload SDK section: replaced `callTool`/permission-gate model with typed read-only SDK (`window.cowork.{context,user,data}.*`) mapping to single `cowork:read` IPC channel. Updated channel inventory, design notes (dual-caller → main-renderer-only), `IpcChannels` constant, and `IpcHandlerMap`. Aligns with agent-context-pipeline.md v7 (now consolidated into system-architecture.md).
 
 **v5 (Feb 17, 2026):** App preload permission wording alignment. Clarified that preload grant checks use projected in-memory grants hydrated from `app_permissions`, and added explicit runtime requirement to refresh grants on permission updates before subsequent tool calls (reload/recycle or equivalent signaling).
 

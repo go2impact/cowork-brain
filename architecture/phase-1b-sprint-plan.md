@@ -153,7 +153,7 @@ Full channel inventory + Zod schemas. [system-architecture.md § IPC Contract](.
 | `mcp:*` | `connect`, `disconnect`, `listConnections`, `listTools`, `getStatus` | Renderer → Main → Agents | Yes (Sprint 5) |
 | `cowork:*` | `read` | App → Main → Agents | Yes (Sprint 5) |
 | `apps:*` | `install`, `list`, `remove` | Renderer → Main → Agents | Yes (Sprint 5) |
-| `apps:*` | `callTool`, `listTools`, `getAppConfig` | Renderer → Main → Agents | Deferred (read lane replaces — see [agent-context-pipeline.md](./agent-context-pipeline.md)) |
+| `apps:*` | `callTool`, `listTools`, `getAppConfig` | Renderer → Main → Agents | Deferred (read lane replaces — see [system-architecture.md § Context Pipeline](./system-architecture.md#context-pipeline)) |
 | `app:*` | `getSettings`, `setTheme` | Renderer → Main | Yes (Sprint 5) |
 | `system:*` | `health`, `retry` | Main → Renderer (health), Renderer → Main (retry) | Yes (Sprint 5) |
 | `browser:*` | `execute`, `getState`, `stop`, `getExecutionLog` | Renderer → Main → Agents → Playwright | Phase 4 |
@@ -338,9 +338,9 @@ Split out to unblock frontend foundation work. Component integration, theme syst
 
 **Repo:** coworkai-desktop
 **Depends on:** Sprint 1 (schema) + Sprint 2 (IPC contract) + Sprint 3 (folder structure) + Sprint 4.5 (renderer foundation)
-**Reference:** [agent-context-pipeline.md](./agent-context-pipeline.md) — communication architecture, read lane protocol, two-layer runtime. [ipc-contract.md](./ipc-contract.md) — channel schemas, streaming protocol. [database-schema.md](./database-schema.md) — table ownership, DDL.
+**Reference:** [system-architecture.md § Context Pipeline](./system-architecture.md#context-pipeline) — two-layer runtime, read lane protocol. [ipc-contract.md](./ipc-contract.md) — channel schemas, streaming protocol. [database-schema.md](./database-schema.md) — table ownership, DDL.
 
-Implement the full agent runtime, MCP integration, renderer views, apps runtime, and app read lane — everything defined in [agent-context-pipeline.md](./agent-context-pipeline.md). This is the final Phase 1B implementation sprint — everything before this is foundation (folder structure, schema, capture, component library), everything after is Phase 2+.
+Implement the full agent runtime, MCP integration, renderer views, apps runtime, and app read lane — everything defined in [system-architecture.md](./system-architecture.md). This is the final Phase 1B implementation sprint — everything before this is foundation (folder structure, schema, capture, component library), everything after is Phase 2+.
 
 **Work:**
 
@@ -357,7 +357,7 @@ Implement the full agent runtime, MCP integration, renderer views, apps runtime,
    - Run schema migration for agent-owned tables
    - Signal ready to main
 
-3. **Chat pipeline (agent path — Layer 1 + Layer 2 per [agent-context-pipeline.md](./agent-context-pipeline.md)):**
+3. **Chat pipeline (agent path — Layer 1 + Layer 2 per [system-architecture.md § Context Pipeline](./system-architecture.md#context-pipeline)):**
    - `chat:sendMessage` → query recent capture rows → inject as system context (Layer 1: automatic context injection) → `agent.generate()` → response back. This is how chat becomes activity-aware without embeddings — direct SQL before each agent call.
    - Streaming path: `agent.stream()` → MessagePort → renderer (ACK gate pattern from spike)
    - Agent can invoke tools during reasoning (Layer 2: tool execution) — both platform tools and MCP tools
@@ -373,7 +373,7 @@ Implement the full agent runtime, MCP integration, renderer views, apps runtime,
    - `mcp:listTools` → return tools from connected servers
    - `mcp:getStatus` → return connection health
 
-5. **App read lane (`cowork:read` per [agent-context-pipeline.md](./agent-context-pipeline.md)):**
+5. **App read lane (`cowork:read` per [system-architecture.md § Context Pipeline](./system-architecture.md#context-pipeline)):**
    - Register `cowork:read` IPC handler in main (relay to agents utility)
    - Implement namespace dispatch in agents utility: `context.*`, `user.*`, `data.*` handlers
    - Data handlers query `cowork.db` and return structured results
@@ -382,7 +382,7 @@ Implement the full agent runtime, MCP integration, renderer views, apps runtime,
    - Register `cowork-app://` protocol: privileged scheme (`standard`, `secure`, `supportFetchAPI`), serves files from `~/Library/Application Support/cowork-ai/apps/{appId}/`, path validation via `path.relative()` + prefix check (no traversal)
    - App installation pipeline: upload zip → extract to temp → **archive hardening** (reject absolute paths / `..` segments for zip-slip, reject symlinks, validate uncompressed size for zip bomb) → move to `apps/{appId}/` → read `cowork.manifest.json` → esbuild bundle (TSX/TS → single JS) → store metadata in libsql
    - App rendering: `WebContentsView` per app with sandbox settings (`contextIsolation`, `sandbox`, `nodeIntegration: false`, `partition: persist:app-${appId}`), block navigation + `window.open()`
-   - App preload: expose `window.cowork.{context,user,data}.*` read lane SDK — each method maps to `ipcRenderer.invoke('cowork:read', { appId, ns, method, args })`. App JS never passes `appId`; preload derives it from session partition. No permission gate for reads (default-allowed per [agent-context-pipeline.md](./agent-context-pipeline.md)).
+   - App preload: expose `window.cowork.{context,user,data}.*` read lane SDK — each method maps to `ipcRenderer.invoke('cowork:read', { appId, ns, method, args })`. App JS never passes `appId`; preload derives it from session partition. No permission gate for reads (default-allowed per [system-architecture.md § Apps Runtime](./system-architecture.md#apps-runtime)).
    - `apps:install`, `apps:list`, `apps:remove` IPC handlers
 
 7. **Preload script:** Expose `window.cowork.*` namespaces for main renderer (chat, capture, context, mcp, system, app)
@@ -489,7 +489,7 @@ Explicitly deferred to later phases:
 - MCP advanced features: orphan cleanup, notification-driven invalidation, per-call abort (Phase 3)
 - Generic AI Studio export support (Phase 5 — Sprint 5 supports template apps only)
 - Full App Gallery UI (Phase 5)
-- App write/action capabilities — tool execution, agent invocation from apps (designed if concrete use cases emerge, per [agent-context-pipeline.md](./agent-context-pipeline.md))
+- App write/action capabilities — tool execution, agent invocation from apps (designed if concrete use cases emerge, per [system-architecture.md § Context Pipeline](./system-architecture.md#context-pipeline))
 - App `onMessage()` push channel — platform-to-app event subscription (Phase 3 — app SDK is read lane only: `window.cowork.{context,user,data}.*`)
 
 Phase 1B delivers the **full runtime** — processes, IPC, capture, storage, basic chat, MCP tool calling, sandboxed apps with read lane access, and all product views. Embedding/RAG, automations, browser automation, and advanced MCP features layer on top.
@@ -498,7 +498,7 @@ Phase 1B delivers the **full runtime** — processes, IPC, capture, storage, bas
 
 ## Changelog
 
-**v17 (Feb 17, 2026):** Major sprint plan consolidation. Merged Sprints 5 (Agents Utility), 6 (E2E Smoke Test), 7 (Basic MCP), and 8 (Basic Apps Runtime) into a single Sprint 5 (Agent Runtime + MCP + Renderer Wiring) that implements the full [agent-context-pipeline.md](./agent-context-pipeline.md) spec: two-layer agent runtime, chat pipeline with streaming, MCP integration, apps runtime with read lane SDK (replaces old `callTool`/`platform_chat` model), all product views, and `cowork:read` read lane infrastructure. Apps runtime included — WebContentsView, `cowork-app://` protocol, esbuild bundling, archive hardening — but app SDK is now read-only (`window.cowork.{context,user,data}.*`) instead of tool-calling. Updated goal line, phase acceleration note, Sprint 2 channel inventory (added `cowork:read`, marked `apps:callTool`/`listTools`/`getAppConfig` as deferred), dependency graph (simplified to linear chain ending at Sprint 5), and "What Phase 1B Does NOT Include".
+**v17 (Feb 17, 2026):** Major sprint plan consolidation. Merged Sprints 5 (Agents Utility), 6 (E2E Smoke Test), 7 (Basic MCP), and 8 (Basic Apps Runtime) into a single Sprint 5 (Agent Runtime + MCP + Renderer Wiring) that implements the full agent runtime spec per [system-architecture.md](./system-architecture.md): two-layer agent runtime, chat pipeline with streaming, MCP integration, apps runtime with read lane SDK (replaces old `callTool`/`platform_chat` model), all product views, and `cowork:read` read lane infrastructure. Apps runtime included — WebContentsView, `cowork-app://` protocol, esbuild bundling, archive hardening — but app SDK is now read-only (`window.cowork.{context,user,data}.*`) instead of tool-calling. Updated goal line, phase acceleration note, Sprint 2 channel inventory (added `cowork:read`, marked `apps:callTool`/`listTools`/`getAppConfig` as deferred), dependency graph (simplified to linear chain ending at Sprint 5), and "What Phase 1B Does NOT Include".
 
 **v16 (Feb 17, 2026):** Marked Sprint 4 (Capture Utility Process) as complete — PR #11 merged. Added Sprint 4.5 (Renderer Foundation + Component Library Integration) — split from Sprint 6 to unblock frontend development in parallel with Sprint 5. Sprint 6 renamed to "E2E Smoke Test" with component integration work removed (now in Sprint 4.5). Updated dependency graph, status summary, and parallel track references. Component count corrected from 15 to 19.
 
