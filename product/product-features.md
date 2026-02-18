@@ -27,7 +27,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 ## Core Design Principles
 
-**Works inside your tools, not instead of them.** You still use Zendesk, Gmail, Slack. The sidecar sits on top of them (via API) and operates inside them (via browser). Apps built in Google AI Studio are uploaded to the desktop app and given access to your work context through platform-provided MCPs.
+**Works inside your tools, not instead of them.** You still use Zendesk, Gmail, Slack. The sidecar sits on top of them (via API) and operates inside them (via browser). Apps built in Google AI Studio are uploaded to the desktop app and given read-only access to your work context through the platform SDK read lane.
 
 **Observes and remembers.** The AI watches what you're working on, embeds and indexes that activity, and builds memory over time. It gets smarter the longer you use it while keeping your context anchored on-device.
 
@@ -43,7 +43,7 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 | # | Feature | What it does |
 |---|---------|-------------|
-| 1 | [**Apps**](#1-apps) | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Apps get tools, not agents — they access platform capabilities through platform-provided MCPs. Browse, search, and install apps from the App Gallery. |
+| 1 | [**Apps**](#1-apps) | Apps built in Google AI Studio are uploaded to the Cowork.ai desktop app and rendered inside it. Phase 1B apps get read-only platform context through a typed SDK (`window.cowork.{context,user,data}.*`) over the read lane. Browse, search, and install apps from the App Gallery. |
 | 2 | [**MCP Integrations**](#2-mcp-integrations) | Connect services (Zendesk, Gmail, Slack, etc.) via MCP. Manage connections, monitor health, configure scopes. The foundation layer that both Apps and Chat use. |
 | 3 | [**Chat**](#3-chat) | Two interaction modes: on-demand conversation (you ask, the AI already knows your context) and proactive notifications (the platform surfaces what matters). Both lead to action. |
 | 4 | [**MCP Browser**](#4-mcp-browser) | Watch the AI work in real time. See every tool call, every browser action, every outcome. Approval gates for sensitive actions. The trust mechanism that enables autonomy. |
@@ -57,17 +57,18 @@ Cowork.ai Sidecar is a persistent desktop AI that observes your work, remembers 
 
 ### 1. Apps
 
-Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Google AI Studio is the on-ramp: someone who's never built an MCP server can use a Cowork template and have a working app in minutes. Those apps have access to platform-provided MCPs, which are connected to data from the Context engine — giving apps access to work context, activity history, and connected service data.
+Apps are built in Google AI Studio, uploaded to the Cowork.ai desktop app, and rendered inside it. Google AI Studio is the on-ramp: someone who's never built an MCP server can use a Cowork template and have a working app in minutes. In Phase 1B, apps consume platform context through a typed read-only SDK (`window.cowork.{context,user,data}.*`) — giving apps access to work context, activity history, and app-scoped data without direct action execution.
 
-**Apps get tools, not agents.** Third-party apps access platform capabilities through MCP tools and resources — they do not get direct access to the platform's agents. The platform agent stays as the single orchestrator: it owns reasoning, budget enforcement, and safety rails. If an app needs agent-level reasoning, the platform exposes it as an MCP tool (agent-as-tool pattern) — the app sees a tool call, the platform runs the agent with full control.
+**Phase 1B contract: apps get data, not tools.** Third-party apps do not get direct MCP tool execution or direct agent reasoning. The platform agent stays as the single orchestrator for actions, budget enforcement, and safety rails.
 
 Each installed app shows a compact status card in the sidesheet (unread count, queue depth, next event) and expands to a full view for deep interaction.
 
-**App permissions:**
+**App access (Phase 1B):**
 
-- Each app declares what MCP tools it needs (like app permissions on a phone). The platform grants scoped access per app.
-- Activity context is exposed as read-only MCP resources — apps can read context to be relevant, but cannot write to the activity store.
-- Cross-app actions run only when required connections and scopes are available.
+- Apps use a read-only SDK surface (`context`, `user`, `data` namespaces) routed through a single read lane.
+- Apps cannot execute MCP tools, invoke platform agents, or write to the activity store.
+- Every app install must show a clear disclosure of what read-lane data the app can access before enabling it.
+- Future phases may add app write/action capabilities, but not in Phase 1B.
 
 #### App Gallery
 
@@ -76,7 +77,7 @@ Where users find and install new apps. Browse by category, search by name, and i
 - **Categories:** Productivity, Communication, CRM, Developer Tools, Custom/Community.
 - **Each listing shows:** Icon, name, description, what MCP servers it connects to, install button.
 - **After install:** App appears in sidesheet, begins syncing via MCP.
-- **Configuration:** Per-app settings for connected accounts, notification preferences, and MCP scope permissions.
+- **Configuration:** Per-app settings for connected accounts, notification preferences, and app metadata.
 
 **In the SideSheet:** Each installed app gets a compact card showing its current state. "Browse Apps" link at the bottom of the app list.
 **In the Detail Canvas:** Full gallery with categories, search, featured apps, and install flow.
@@ -85,7 +86,7 @@ Where users find and install new apps. Browse by category, search by name, and i
 
 ### 2. MCP Integrations
 
-MCP Integrations are the pipes to external services. Unlike Apps (which have their own UI and logic), integrations have no standalone interface — they expose data and actions that the platform agent and Apps can both use. Apps and Chat both depend on connected services; MCP Integrations is where you manage those connections.
+MCP Integrations are the pipes to external services. Unlike Apps (which have their own UI and logic), integrations have no standalone interface — they expose data and actions to the platform agent. Apps and Chat both depend on connected services indirectly through platform-managed context and execution paths; MCP Integrations is where those connections are managed.
 
 **What it covers:**
 
@@ -99,7 +100,7 @@ MCP Integrations are the pipes to external services. Unlike Apps (which have the
 - If a required source is disconnected or auth expires, the action pauses and the user is notified with the exact blocker and reconnect action.
 - Partial permissions degrade gracefully (read-only summaries allowed; blocked write actions require reconnect/approval).
 
-**Relationship to Apps:** Apps declare what MCP tools they need. MCP Integrations is where those connections are actually managed — think of it as the plumbing that apps and chat sit on top of.
+**Relationship to Apps:** In Phase 1B, apps do not execute MCP tools directly. MCP Integrations still power platform-level context and actions that apps can surface through the read lane.
 
 **In the SideSheet:** Compact card showing connected services count, connection health (all green / X needs attention), and quick link to manage.
 **In the Detail Canvas:** Connection management interface with status, tools, and add-new flow.
@@ -233,7 +234,7 @@ Agents use custom tools to execute tasks through two paths:
 
 **Key principle:** Agents choose the right path for each step. The user configures which path applies per app, per category, or per action — and can override on any individual item.
 
-**Exposure to third-party apps:** Custom tools and execution capabilities are exposed to apps via platform-provided MCPs. Apps request actions through MCP tools; the platform agent decides how to execute them (MCP path, browser path, or both) with full safety rails. Apps never invoke agents directly.
+**Exposure to third-party apps (Phase 1B):** Apps do not execute custom tools directly. They surface read-lane data, while execution remains platform-owned (Chat, MCP path, Browser path) with full safety rails.
 
 ---
 
@@ -377,6 +378,7 @@ Getting the positioning right matters. Cowork.ai is not:
 
 | Date | Changes |
 |------|---------|
+| 2026-02-17 | Apps model alignment with read-lane architecture. Updated Apps feature contract from app tool execution to read-only typed SDK access (`window.cowork.{context,user,data}.*`) for Phase 1B, added required install-time data disclosure language, and clarified that MCP execution remains platform-owned. Updated related MCP Integrations and MCP Browser wording to remove direct app tool-call assumptions. |
 | 2026-02-17 | Clarified Context scope for v0.1: screen recording moved out of v0.1 and reserved for v0.2. Updated “What the AI observes” defaults, retention text, and “What the AI never collects” wording to reflect no screen capture in v0.1. |
 | 2026-02-16 | Major restructure per CEO feedback on PR #6. Six features: Apps (with App Gallery), MCP Integrations, Chat (merges On-Demand Chat + Proactive Suggestions), MCP Browser (merges Execution Viewer + Execution Modes), Automations (new), Context (merges Activity Capture + Context Card + user-facing Memory summary). Technical memory architecture moved to llm-architecture.md. |
 | 2026-02-13 | Added features 5–6: On-Demand Chat (zero-context conversational interface, chat → action bridge, entry point from Proactive Suggestions) and Memory (four-layer system — conversation history, working memory, semantic recall via RAG, observational memory — covering both activity capture data and conversations). Updated Privacy section with memory data types. |

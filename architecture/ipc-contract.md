@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft v4 (reviewed) |
+| **Status** | Draft v6 |
 | **Last Updated** | 2026-02-17 |
 | **Owner** | Rustan |
 | **Sprint** | Phase 1B, Sprint 2 |
@@ -49,7 +49,7 @@ The channel inventory wasn't invented — it was extracted from four existing do
 
 **`activityRecord` is a flat object with optional fields, not a discriminated union per activity type.** Simpler for the Context view to render — it just maps over a list. The `type` field tells the UI which icon/layout to use. The alternative (separate `WindowActivity`, `FocusActivity`, etc. types) would force the renderer to handle each variant, which isn't needed for a list view.
 
-**`apps:*` channels serve both the main renderer and app preloads.** Rather than having two separate channel sets (`apps:*` for management + `appSdk:*` for the SDK), the app preload wraps the same `apps:callTool` / `apps:listTools` / `apps:getAppConfig` channels with permission checks and `appId` injection. One set of handlers, two callers. The permission enforcement happens at the preload layer before the IPC call, so a denied request never reaches main.
+**`apps:*` channels are main-renderer-only (management).** App lifecycle management (`apps:install`, `apps:list`, `apps:remove`) is used by the main renderer's Apps view. The previous design had `apps:callTool` / `apps:listTools` / `apps:getAppConfig` shared between the main renderer and app preloads — that dual-caller pattern is superseded. Sandboxed apps now use the read lane (`cowork:read`) instead of `apps:*` channels. See [agent-context-pipeline.md](./agent-context-pipeline.md) for the full rationale on why apps get a typed read-only SDK instead of direct tool access.
 
 **MCP `apiKey` is in the connect request, not a separate channel.** It's encrypted via Electron `safeStorage` at the main process layer before persisting to libsql. The renderer sends the plaintext key once; main encrypts and stores it. No separate "store credential" flow needed for Phase 1B (API key auth only).
 
@@ -69,7 +69,7 @@ Validation happens at the handler entry point (parse request) and at the preload
 
 - **`browser:*` and `automation:*` schemas** — Phase 4. Channel names are listed for completeness but no Zod schemas. These features aren't designed in enough detail yet to define payloads.
 - **`app:*` extensibility** — `app:getSettings` returns a minimal shape. More fields (LLM provider selection, capture defaults, notification preferences) will be added as those features land.
-- **Streaming to apps** — App SDK responses are request/response in Phase 1B. Streaming to apps via `onMessage()` is deferred to Phase 3.
+- **App tool execution** — `apps:callTool` and `apps:listTools` schemas are retained but deferred from Phase 1B app preload. Apps use the read lane (`cowork:read`) for data access. Tool execution from apps is out of scope for Phase 1B — will be designed if concrete app use cases require it.
 - **Pagination** — Only `chat:getThreads` has cursor-based pagination. Other list endpoints (`apps:list`, `mcp:listConnections`) are expected to have small result sets in v0.1. Pagination can be added if lists grow.
 
 ### Decisions locked for Phase 1B
@@ -82,7 +82,7 @@ Validation happens at the handler entry point (parse request) and at the preload
 
 ## Channel Inventory
 
-All channels across all phases. Phase 1B implements everything except `browser:*` and `automation:*`.
+All channels across all phases. Phase 1B implements everything except `browser:*`, `automation:*`, and the three deferred `apps:*` SDK channels (`callTool`, `listTools`, `getAppConfig`).
 
 | Channel | Direction | Pattern | Handler Process | Phase |
 |---|---|---|---|---|
@@ -104,9 +104,10 @@ All channels across all phases. Phase 1B implements everything except `browser:*
 | `apps:install` | Renderer → Main → Agents | invoke/handle | Main + Agents | 1B |
 | `apps:list` | Renderer → Main → Agents | invoke/handle | Agents | 1B |
 | `apps:remove` | Renderer → Main → Agents | invoke/handle | Main + Agents | 1B |
-| `apps:callTool` | Renderer/App → Main → Agents | invoke/handle | Agents | 1B |
-| `apps:listTools` | Renderer/App → Main → Agents | invoke/handle | Agents | 1B |
-| `apps:getAppConfig` | Renderer/App → Main → Agents | invoke/handle | Agents | 1B |
+| `apps:callTool` | Renderer → Main → Agents | invoke/handle | Agents | Deferred |
+| `apps:listTools` | Renderer → Main → Agents | invoke/handle | Agents | Deferred |
+| `apps:getAppConfig` | Renderer → Main → Agents | invoke/handle | Agents | Deferred |
+| `cowork:read` | App → Main → Agents | invoke/handle | Agents | 1B |
 | `app:getSettings` | Renderer → Main | invoke/handle | Main | 1B |
 | `app:setTheme` | Renderer → Main | invoke/handle | Main | 1B |
 | `system:health` | Main → Renderer | event push | Main | 1B |
@@ -121,7 +122,9 @@ All channels across all phases. Phase 1B implements everything except `browser:*
 | `automation:trigger` | Renderer → Main → Agents | invoke/handle | Agents | 4 |
 | `automation:getRunLog` | Renderer → Main → Agents | invoke/handle | Agents | 4 |
 
-**Note on `apps:*` dual callers:** `apps:callTool`, `apps:listTools`, and `apps:getAppConfig` are called by both the main renderer (Apps view) and sandboxed app preloads. The app preload injects the `appId` and enforces permission checks before the IPC call leaves the renderer process. See [App Preload SDK](#app-preload-sdk).
+**Note on `apps:*` scope change:** `apps:callTool`, `apps:listTools`, and `apps:getAppConfig` were previously designed as dual-caller channels (main renderer + app preload). These are now **deferred** — app preloads use the read lane (`cowork:read`) instead. The schemas are retained for potential future use but are not exposed to sandboxed apps in Phase 1B. `apps:install`, `apps:list`, and `apps:remove` remain main-renderer-only channels for app lifecycle management.
+
+**Note on `cowork:read`:** Single channel for all app read lane requests. The app preload maps typed SDK methods (`window.cowork.context.*`, etc.) to `cowork:read` invocations with namespace + method dispatch. See [App Preload SDK](#app-preload-sdk) and [agent-context-pipeline.md](./agent-context-pipeline.md) for the full protocol.
 
 ---
 
@@ -552,7 +555,7 @@ export type MCPGetStatusResponse = z.infer<typeof mcpGetStatusResponseSchema>;
 
 ### `apps:*`
 
-App lifecycle management and platform SDK calls. Called by both the main renderer (Apps view) and sandboxed app preloads (SDK). See [App Preload SDK](#app-preload-sdk) for how app preloads wrap these channels.
+App lifecycle management. Called by the main renderer (Apps view) only. Sandboxed apps use the read lane (`cowork:read`) — see [App Preload SDK](#app-preload-sdk).
 
 #### `apps:install`
 
@@ -602,9 +605,9 @@ export const appsRemoveResponseSchema = z.object({
 export type AppsRemoveResponse = z.infer<typeof appsRemoveResponseSchema>;
 ```
 
-#### `apps:callTool`
+#### `apps:callTool` (Deferred)
 
-Execute an MCP tool on behalf of an app. Permission-checked at the app preload layer before reaching IPC.
+Execute an MCP tool on behalf of an app. **Deferred from Phase 1B app SDK.** Schema retained for potential future use. Apps use the read lane (`cowork:read`) for data access in Phase 1B. See [agent-context-pipeline.md](./agent-context-pipeline.md) § App Access Model.
 
 ```ts
 export const appsCallToolRequestSchema = z.object({
@@ -620,9 +623,9 @@ export const appsCallToolResponseSchema = z.object({
 export type AppsCallToolResponse = z.infer<typeof appsCallToolResponseSchema>;
 ```
 
-#### `apps:listTools`
+#### `apps:listTools` (Deferred)
 
-List MCP tools available to a specific app (filtered by its permission grants).
+List MCP tools available to a specific app. **Deferred from Phase 1B app SDK.** Apps use the read lane for data access — they don't need tool discovery.
 
 ```ts
 export const appsListToolsRequestSchema = z.object({
@@ -636,9 +639,9 @@ export const appsListToolsResponseSchema = z.object({
 export type AppsListToolsResponse = z.infer<typeof appsListToolsResponseSchema>;
 ```
 
-#### `apps:getAppConfig`
+#### `apps:getAppConfig` (Deferred)
 
-Return app metadata and granted permissions.
+Return app metadata and granted permissions. **Deferred from Phase 1B app SDK.** App identity is injected by the preload — apps don't need to query their own config via IPC in the read lane model.
 
 ```ts
 export const appsGetAppConfigRequestSchema = z.object({
@@ -741,6 +744,63 @@ export const systemRetryResponseSchema = z.object({
   newState: serviceStateSchema,
 });
 export type SystemRetryResponse = z.infer<typeof systemRetryResponseSchema>;
+```
+
+---
+
+### `cowork:*`
+
+App read lane. Single channel used by sandboxed app preloads to access platform data. All requests are read-only and default-allowed (no permission grants required). Routes through main to agents utility.
+
+For the full protocol design, rationale, and SDK surface definition, see [agent-context-pipeline.md](./agent-context-pipeline.md) § App Read Lane Protocol.
+
+#### `cowork:read`
+
+Generic read dispatch channel. The app preload maps typed SDK methods to this channel with namespace + method routing.
+
+```ts
+export const coworkReadNamespaceSchema = z.enum(['context', 'user', 'data']);
+export type CoworkReadNamespace = z.infer<typeof coworkReadNamespaceSchema>;
+
+export const coworkReadRequestSchema = z.object({
+  appId: z.string(),
+  ns: coworkReadNamespaceSchema,
+  method: z.string(),
+  args: z.record(z.unknown()).default({}),
+});
+export type CoworkReadRequest = z.infer<typeof coworkReadRequestSchema>;
+
+export const coworkReadResponseSchema = z.object({
+  data: z.unknown(),
+});
+export type CoworkReadResponse = z.infer<typeof coworkReadResponseSchema>;
+```
+
+**Why generic `z.unknown()` response:** Each method returns a different shape. The dispatch layer in agents utility validates per-method responses internally. The IPC envelope is intentionally loose — type safety for individual methods comes from the TypeScript SDK types that the app preload exposes, not from the IPC channel schema.
+
+**Supported methods (Phase 1B):**
+
+| Namespace | Method | Returns | Backing data |
+|---|---|---|---|
+| `context` | `activeWindow` | Current focused window/app info | Latest `activity_sessions` row |
+| `context` | `recentActivity` | Recent activity summary | `activity_sessions` + merge tables |
+| `context` | `currentTime` | Local time + timezone | System clock |
+| `user` | `preferences` | User settings | `app:getSettings` equivalent |
+| `user` | `profile` | User name, role | User profile store |
+| `data` | `conversations` | This app's conversation history | Agent thread storage, scoped by `appId` |
+| `data` | `search` | Semantic search over activity | `context:query` equivalent |
+
+**args for methods that accept options:**
+
+```ts
+// context.recentActivity
+{ limit?: number; since?: string }  // defaults: limit=20, since=undefined
+
+// data.conversations
+{ limit?: number; cursor?: string }  // defaults: limit=50, cursor=undefined
+
+// data.search
+{ query: string; limit?: number }    // defaults: limit=10
 ```
 
 ---
@@ -890,33 +950,44 @@ The ACK gate prevents the agents process from streaming before the renderer has 
 
 ## App Preload SDK
 
-Sandboxed apps get a restricted `window.cowork.*` API via `app-preload.ts`. This preload wraps `apps:*` IPC channels with permission enforcement and automatic `appId` injection.
-Permission source of truth is `app_permissions` in [database-schema.md](./database-schema.md), projected into preload `grants` (`tools[]`, `captureRead`) per app.
+Sandboxed apps get a typed, read-only `window.cowork.*` API via `app-preload.ts`. This preload maps SDK methods to the `cowork:read` IPC channel with automatic `appId` injection.
+
+For the full protocol rationale (why typed SDK, why not `callTool`, why not MCP), see [agent-context-pipeline.md](./agent-context-pipeline.md) § App Read Lane Protocol.
 
 ```ts
 // app-preload.ts (conceptual — not full implementation)
 const APP_ID = getAppIdFromPartition(); // derived from session partition
-const grants = getGrantedPermissions();  // loaded at preload init
+
+// Helper: all read lane calls go through one IPC channel
+const read = (ns: string, method: string, args: Record<string, unknown> = {}) =>
+  ipcRenderer.invoke('cowork:read', { appId: APP_ID, ns, method, args });
 
 contextBridge.exposeInMainWorld('cowork', {
-  callTool: (toolName: string, args: Record<string, unknown> = {}) => {
-    if (!grants.tools.includes(toolName)) {
-      return Promise.reject(new Error(`Permission denied: tool "${toolName}"`));
-    }
-    return ipcRenderer.invoke('apps:callTool', { appId: APP_ID, toolName, args });
+  context: {
+    activeWindow: () => read('context', 'activeWindow'),
+    recentActivity: (opts?: { limit?: number; since?: string }) =>
+      read('context', 'recentActivity', opts ?? {}),
+    currentTime: () => read('context', 'currentTime'),
   },
-
-  listTools: () => {
-    return ipcRenderer.invoke('apps:listTools', { appId: APP_ID });
+  user: {
+    preferences: () => read('user', 'preferences'),
+    profile: () => read('user', 'profile'),
   },
-
-  getAppConfig: () => {
-    return ipcRenderer.invoke('apps:getAppConfig', { appId: APP_ID });
+  data: {
+    conversations: (opts?: { limit?: number; cursor?: string }) =>
+      read('data', 'conversations', opts ?? {}),
+    search: (query: string, opts?: { limit?: number }) =>
+      read('data', 'search', { query, ...opts }),
   },
 });
 ```
 
-Permission checks happen **before** the IPC call leaves the renderer process. A denied call never reaches main.
+Key differences from previous design:
+
+- **No permission checks in preload.** All read lane methods are default-allowed. No grants table, no denial logic, no refresh signaling.
+- **No `callTool` / `listTools` / `getAppConfig`.** Apps don't call tools or discover tools. They read data through typed methods.
+- **One IPC channel.** Every SDK method maps to `cowork:read` with `{ ns, method, args }`. Main relay is a single generic handler.
+- **`appId` injected by preload.** Apps cannot spoof their identity — the preload derives `appId` from the session partition, same as before.
 
 ---
 
@@ -955,9 +1026,12 @@ export const IpcChannels = {
     install: 'apps:install',
     list: 'apps:list',
     remove: 'apps:remove',
-    callTool: 'apps:callTool',
-    listTools: 'apps:listTools',
-    getAppConfig: 'apps:getAppConfig',
+    callTool: 'apps:callTool',       // deferred from Phase 1B app SDK
+    listTools: 'apps:listTools',     // deferred from Phase 1B app SDK
+    getAppConfig: 'apps:getAppConfig', // deferred from Phase 1B app SDK
+  },
+  cowork: {
+    read: 'cowork:read',  // app read lane — all app SDK calls route here
   },
   app: {
     getSettings: 'app:getSettings',
@@ -1013,9 +1087,8 @@ type IpcHandlerMap = {
   'apps:install': { request: AppsInstallRequest; response: AppsInstallResponse };
   'apps:list': { request: void; response: AppsListResponse };
   'apps:remove': { request: AppsRemoveRequest; response: AppsRemoveResponse };
-  'apps:callTool': { request: AppsCallToolRequest; response: AppsCallToolResponse };
-  'apps:listTools': { request: AppsListToolsRequest; response: AppsListToolsResponse };
-  'apps:getAppConfig': { request: AppsGetAppConfigRequest; response: AppsGetAppConfigResponse };
+  // apps:callTool, apps:listTools, apps:getAppConfig — deferred from Phase 1B app SDK
+  'cowork:read': { request: CoworkReadRequest; response: CoworkReadResponse };
   'app:getSettings': { request: void; response: AppGetSettingsResponse };
   'app:setTheme': { request: AppSetThemeRequest; response: AppSetThemeResponse };
   'system:retry': { request: SystemRetryRequest; response: SystemRetryResponse };
@@ -1046,6 +1119,10 @@ These helpers are implemented in Sprint 3 (folder restructure) or Sprint 4/5 (wh
 ---
 
 ## Changelog
+
+**v6 (Feb 17, 2026):** App read lane integration. Added `cowork:read` channel with namespace dispatch schema and per-method reference table. Deferred `apps:callTool`, `apps:listTools`, `apps:getAppConfig` from Phase 1B app SDK — schemas retained for future use but not exposed to sandboxed apps. Rewrote App Preload SDK section: replaced `callTool`/permission-gate model with typed read-only SDK (`window.cowork.{context,user,data}.*`) mapping to single `cowork:read` IPC channel. Updated channel inventory, design notes (dual-caller → main-renderer-only), `IpcChannels` constant, and `IpcHandlerMap`. Aligns with [agent-context-pipeline.md](./agent-context-pipeline.md) v7.
+
+**v5 (Feb 17, 2026):** App preload permission wording alignment. Clarified that preload grant checks use projected in-memory grants hydrated from `app_permissions`, and added explicit runtime requirement to refresh grants on permission updates before subsequent tool calls (reload/recycle or equivalent signaling).
 
 **v4 (Feb 17, 2026):** Finalized Sprint 2 draft contract for implementation sync. Added explicit alignment with [database-schema.md](./database-schema.md) for context reads, MCP persistence (`mcp_servers` + `mcp_connection_state`), and app permission enforcement (`app_permissions`). Replaced "Open questions in this draft" with locked Phase 1B decisions.
 
