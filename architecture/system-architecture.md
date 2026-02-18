@@ -1,6 +1,6 @@
 # Cowork.ai Sidecar — System Architecture
 
-**v1.5 — February 17, 2026**
+**v1.8 — February 18, 2026**
 **Audience:** Engineering (Rustan + team)
 **Purpose:** Single reference for how the entire system fits together — processes, data flow, IPC, and how features map to infrastructure.
 
@@ -9,7 +9,7 @@
 | # | Question | Blocks v0.1? | What it takes to resolve |
 |---|---|---|---|
 | 2 | **Database schema** | **Resolved — Draft** | Full table design, ownership map, retention policy, and types in [database-schema.md](./database-schema.md) |
-| 3 | **IPC contract** | **Resolved — Final Draft** | 34 channels, 9 namespaces, full Zod schemas with locked Phase 1B decisions. See [ipc-contract.md](./ipc-contract.md) |
+| 3 | **IPC contract** | **Resolved — Final Draft** | 35 channels, 9 namespaces, full Zod schemas with locked Phase 1B decisions. See [ipc-contract.md](./ipc-contract.md) |
 
 Inline: **Observer model choice** (line 612, needs benchmarking)
 
@@ -101,7 +101,7 @@ v0.1 uses a persistent Playwright context — login state (cookies, localStorage
 
 ### Boot Sequence
 
-Three processes boot in parallel. Main waits up to 10s for utilities to signal ready, then creates the renderer regardless (see [Startup Failure Policy](#startup-failure-policy)).
+Two utility processes boot in parallel. Main waits up to 10s for utilities to signal ready, then creates the renderer regardless (see [Startup Failure Policy](#startup-failure-policy)).
 
 **Main process:**
 0. MCP orphan cleanup — glob lockfiles, kill stale processes (see [MCP Connections](#mcp-connections))
@@ -112,9 +112,9 @@ Three processes boot in parallel. Main waits up to 10s for utilities to signal r
 5. Create BrowserWindow (renderer)
 
 **Capture Utility:**
-1. NativeAddonManager (load `coworkai-keystroke-capture`, `coworkai-activity-capture`)
-2. CaptureBufferManager (activity buffer, keystroke chunker)
-3. DBManager (libsql sync connection to `cowork.db`)
+1. DBManager (libsql sync connection to `cowork.db`)
+2. NativeAddonManager (load `coworkai-keystroke-capture`, `coworkai-activity-capture`)
+3. CaptureBufferManager (activity buffer, keystroke chunker)
 4. Signal ready to main
 
 **Agents & RAG Utility:**
@@ -125,7 +125,7 @@ Three processes boot in parallel. Main waits up to 10s for utilities to signal r
 5. EmbeddingManager (queue, Qwen3-Embedding-0.6B via Ollama)
 6. Signal ready to main
 
-Each step within a process is sequential — later steps depend on earlier ones. The three processes are independent and boot concurrently.
+Each step within a process is sequential — later steps depend on earlier ones. The two utility processes are independent and boot concurrently.
 
 ### Startup Failure Policy
 
@@ -176,7 +176,7 @@ User's desktop activity
 │     Capture Utility Process     │
 │                                 │
 │  coworkai-activity-capture      │──→ Active app, window title, browser URL (ON by default)
-│  coworkai-keystroke-capture     │──→ Keystroke patterns (OFF, opt-in), clipboard (OFF, opt-in)
+│  coworkai-keystroke-capture     │──→ Keystroke patterns, clipboard events
 │                                 │
 │  Activity buffer (5-slot queue) │──→ Bounded memory, auto-flush on focus change
 │  Keystroke chunker (debounce)   │──→ 1000-char chunk cap, special-key triggers
@@ -329,13 +329,13 @@ The renderer calls `window.cowork.namespace.method()` → preload routes through
 
 ### IPC Observability
 
-**tracedInvoke** — Wrapper around IPC that propagates OpenTelemetry span context across all 4 processes. The trace payload is appended as the last IPC argument and stripped before the handler sees it — business logic never knows about tracing. Backward compatible: calls without trace context work identically.
+**tracedInvoke** — Wrapper around IPC that propagates OpenTelemetry span context across all resident processes. The trace payload is appended as the last IPC argument and stripped before the handler sees it — business logic never knows about tracing. Backward compatible: calls without trace context work identically.
 
-**4-process waterfall** — A single user chat request produces a trace: `renderer.send` → `main.relay` → `agents.process` → `playwright.execute` (if browser action). Shows exactly where latency lives. Main process adds a relay span (`ipc.relay`) showing the routing hop.
+**Cross-process waterfall** — A single user chat request produces a trace: `renderer.send` → `main.relay` → `agents.process` → `playwright.execute` (if browser action). Shows exactly where latency lives. Main process adds a relay span (`ipc.relay`) showing the routing hop.
 
 **IpcChannel typed constants** — All channel names defined in `src/shared/ipc-channels.ts`. Single source of truth imported by all processes. Prevents typos and enables refactoring with type safety.
 
-**Trace storage** — Spans stored in `cowork.db` (extends Mastra's `LibSQLStore` traces, same database). Used for: latency debugging across four processes, safety rail audit trails (every tool call logged with timing), and MCP Browser execution log (action timeline).
+**Trace storage** — Spans stored in `cowork.db` (extends Mastra's `LibSQLStore` traces, same database). Used for: latency debugging across processes, safety rail audit trails (every tool call logged with timing), and MCP Browser execution log (action timeline).
 
 ### Preload Namespace Design
 
@@ -370,9 +370,13 @@ Global keyboard and mouse event capture.
 | Electron safety | Graceful Accessibility permission handling, event tap auto-recovery |
 | Threading | `Napi::ThreadSafeFunction` — events dispatched to JS without blocking native thread |
 
+### Active Window Detection
+
+Primary source: `@miniben90/x-win` — polls native API at 100ms intervals via `subscribeActiveWindow()`. Provides app name, window title, and browser URL.
+
 ### `coworkai-activity-capture`
 
-Active window detection, app identification, browser URL extraction.
+Enrichment fallback — supplements `x-win` when window title or browser URL is missing. Called synchronously on each x-win event; enrichment is skipped if both fields are already present. App name must match x-win's app name (case-insensitive) to prevent cross-app data contamination.
 
 | Capability | Detail |
 |---|---|
@@ -428,7 +432,7 @@ See [capture-pipeline-architecture.md](./capture-pipeline-architecture.md) for t
 - One native module instead of two — one ABI rebuild, one ASAR unpack
 - Proven in production Electron apps (Beekeeper Studio, Outerbase Studio Desktop)
 
-**Schema is not finalized.** The new schema will be designed from [product-features.md](../product/product-features.md) — specifically the five active v0.1 input streams (plus screen recording in v0.2), four memory layers, and Mastra agent state requirements. The old tracking-oriented schema does not carry over.
+**Schema:** Draft for implementation. See [database-schema.md](./database-schema.md) for the full table design, ownership map, retention policy, and types.
 
 ### Database Hardening
 
@@ -520,7 +524,7 @@ Request arrives
 |---|---|
 | Model | Qwen3-Embedding-0.6B via Ollama (~500MB RAM) |
 | Storage | libsql built-in vector search (same `cowork.db`) |
-| Dimensions | 512–1024 |
+| Dimensions | 1024 |
 | Distance | Cosine similarity |
 | Fallback | Keyword search against SQLite if embeddings can't run locally |
 
@@ -528,8 +532,9 @@ Request arrives
 
 | | |
 |---|---|
-| Model | Whisper Turbo (Core ML → Apple Neural Engine) |
-| RAM | ~1.5 GB |
+| Model (16GB+) | Whisper Turbo (Core ML → Apple Neural Engine) |
+| Model (8GB) | Whisper Small (Core ML, ~244MB, ~0.5GB RAM) — loads on demand |
+| RAM (16GB+) | ~1.5 GB |
 | Strategy | Keep warm on 16GB+ Macs (eliminates 2s cold start). Load on demand for 8GB. |
 | Rule | Audio never leaves the device. Whisper is always local. |
 
@@ -809,6 +814,8 @@ Key properties:
 
 MCP servers are **bundled** with the app — developers (us) build and ship each integration. Users don't install or discover MCP servers; they connect to bundled ones by providing credentials. The Agents & RAG utility process manages all connections.
 
+> **Phase 1B implements:** connection management, tool registry, API key auth, health monitoring. **Phase 3 adds:** OAuth auth, orphan cleanup, notification-driven invalidation, per-call abort, per-server approval policies.
+
 | Concern | How it works |
 |---|---|
 | Connection management | OAuth flows, health monitoring, auth expiry detection |
@@ -835,7 +842,7 @@ starting ──→ running ──→ stopped (user toggled off)
 | `stopped` | Grey dot, user toggled off |
 | `error` | Red dot + error message + reconnect action |
 
-**OAuth flow:**
+**OAuth flow:** *(Phase 3 scope — Phase 1B uses API key auth only)*
 - System browser opens for login (renderer can't handle OAuth popups — sandboxed)
 - PKCE flow via `OAuthClientProvider` from `@modelcontextprotocol/sdk`
 - Credentials (OAuth tokens, API keys) encrypted via Electron `safeStorage` API (uses macOS Keychain / Windows DPAPI under the hood), persisted to `cowork.db` keyed by `cowork-mcp-{serverUrlHash}`. Non-secret metadata (server URL, scopes, expiry timestamp) stored in `{userData}/.mcp/{serverUrlHash}.json`. Tokens never written to plaintext files. (`keytar` is deprecated and archived — `safeStorage` is Electron-native, no additional native bindings needed.)
@@ -1102,18 +1109,18 @@ How each product feature maps to the underlying infrastructure:
 | **Automations** | Agents & RAG | Trigger engine (time/event/activity-pattern). Runs agent tasks. Logs to cowork.db. |
 | **Context** | Capture Utility → cowork.db → Agents & RAG → Renderer | Five input streams in v0.1 (screen recording reserved for v0.2) → stored → embedded → queryable via RAG → Context Card in renderer. |
 
-**Context stream defaults:** Not all streams are active by default. Per [product-features.md](../product/product-features.md#what-the-ai-observes):
+**Context stream defaults:** All five v0.1 streams are ON by default. Per [capture-pipeline-architecture.md](./capture-pipeline-architecture.md):
 
 | Stream | Default | v0.1 |
 |---|---|---|
 | Window & app tracking | ON | Yes |
 | Focus detection | ON | Yes |
-| Browser activity (agent sessions) | ON during sessions | Yes |
-| Keystroke & input capture | **OFF** (opt-in) | Yes |
+| Browser activity (agent sessions) | ON | Yes |
+| Keystroke & input capture | ON | Yes |
 | Screen recording | — | No (reserved for v0.2) |
-| Clipboard monitoring | **OFF** (opt-in) | Yes |
+| Clipboard monitoring | ON | Yes |
 
-Granular per-stream consent is required. Users can enable/disable each active stream independently.
+Granular per-stream consent is required. Users can enable/disable each stream independently.
 
 ---
 
@@ -1162,12 +1169,11 @@ src/
 ├── renderer/                   # Frontend UI (sandboxed, no Node.js)
 │   ├── views/
 │   │   ├── Chat/
-│   │   ├── Apps/
-│   │   ├── AppGallery/
-│   │   ├── MCPBrowser/
-│   │   ├── Automations/
 │   │   ├── Context/
-│   │   └── Settings/
+│   │   ├── Settings/
+│   │   ├── Integrations/
+│   │   └── Apps/
+│   │   # Phase 4/5: MCPBrowser/, Automations/, AppGallery/
 │   └── components/
 └── shared/                     # Types, IPC channel definitions, constants
 ```
@@ -1350,6 +1356,8 @@ All blocking items below are now resolved.
 
 ## Changelog
 
+**v1.8 (Feb 18, 2026):** Review pass — 17 fixes. Header version and IPC channel count corrected. Schema paragraph replaced with reference to `database-schema.md`. Boot sequence: "three processes" → "two utility processes"; capture boot order fixed (DB first, then addons). Data flow diagram: removed stale "(OFF, opt-in)" from keystroke/clipboard. Capture stream defaults: all five v0.1 streams now ON by default (aligned with `capture-pipeline-architecture.md`; updated `product-features.md` to match). Active window detection: added `@miniben90/x-win` as primary source, reframed `coworkai-activity-capture` as enrichment fallback. IPC observability: fixed "4 processes" → "resident processes" / "cross-process". Embedding dimensions: 512–1024 → 1024. Audio: added Whisper Small (8GB fallback). Directory structure: replaced Phase 4/5 views with Phase 1B set (Chat, Context, Settings, Integrations, Apps). MCP: added Phase 1B/3 scope markers for OAuth and advanced features. Changelog reordered to strict reverse-chronological. `repos.md`: desktop build status FAIL → PASS, dependency graph updated (coworkai-agent → Mastra).
+
 **v1.7 (Feb 18, 2026):** Consolidated `DESKTOP_SALVAGE_PLAN.md` into this doc. Added Codebase Origin section (repo disposition, what survived from each repo, what was killed and why) and Execution Phases section (Phase 1A-5 definitions). Corrected Apps Runtime network access model: apps CAN make their own external API calls (Gemini, etc.) with their own keys — the sandbox blocks platform internals, not network access. Updated Platform SDK, Two-Track Strategy, Gemini API proxy decision, and resolved items to reflect this. `DESKTOP_SALVAGE_PLAN.md` deleted.
 
 **v1.6 (Feb 18, 2026):** Consolidated `agent-context-pipeline.md` into this doc. Expanded Context Pipeline section with full two-layer runtime detail (Layer 1 automatic context injection + Layer 2 tool execution), agent chat flow diagram, app read lane summary with cross-reference to Apps Runtime, rejected alternatives rationale (why not agent-mediated, why not callTool, why not MCP), and "apps get data, not tools" policy. `agent-context-pipeline.md` deleted — all content now lives here or in ipc-contract.md.
@@ -1368,18 +1376,28 @@ All blocking items below are now resolved.
 
 **v1.5.3 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `chat(message)` method to match product rule "Apps get tools, not agents." Apps now reach platform reasoning through `callTool('platform_chat', ...)` (agent-as-tool), with normal tool permission checks. Updated Platform SDK table, two-track generic-export guidance, Gemini proxy decision row, installation flow permission step, and the resolved decisions summary.
 
-**v1 (Feb 16, 2026):** Initial draft. Consolidates process model, data flow, IPC contract, capture layer, database layer, LLM stack, memory system, agent orchestration, feature-to-infrastructure mapping, thermal management, and directory structure from six existing decision/architecture docs into a single reference.
-**v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.
-**v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
-**v1.3 (Feb 17, 2026):** Integrated 5 remaining adaptation guides (Jan, Chatbox, LobeChat, AnythingLLM, Cherry Studio). Added: database hardening (single-client access, vector index namespacing, schema migration strategy), model lifecycle (preflight fit check, download integrity, path safety), embedding pipeline (resumable ingestion, batch checkpoints, crash recovery), RAG context assembly (multi-source priority order, fillSourceWindow backfill, query refusal), agent execution model (persistent operations, instruction executor, max-step safety), multi-phase tool approval policy (6-phase hierarchy, mixed execution, approval state), MCP enhancements (orphan cleanup, client cache with dedup, notification-driven invalidation, per-call abort, 7-step install state machine), IPC observability (tracedInvoke, 4-process waterfall, typed IpcChannel constants, trace storage), automations engine (flow executor, variable substitution, block types, flow-as-tool), build configuration (ASAR unpack, post-pack patching, process-specific aliases, chunk inlining), complexity router askId grouping, explicit hardware reserve breakdown.
-**v1.3.1 (Feb 17, 2026):** Normative behavior pass. Added: startup failure policy (timeout + degraded boot, service states, retry with backoff, degraded mode capabilities), service health IPC contract (`system:health` + `system:retry` channels), Keychain-backed MCP credential storage (replaces plaintext token files), crash-safe notification throttling (all counters persisted to cowork.db), PID-reuse safety for MCP orphan cleanup (executable path + argv hash identity check before kill). Review fixes: renamed "Chat (proactive)" to "Proactive Notifications", screen recording marked not-in-v0.1, MCPClient lifecycle added stopped→starting transition, Phase 2 renamed to "Mandatory approval tools", Phase 4 per-server policy defined, utility-to-utility DB-only communication documented, embedding model name normalized, DB access table updated to show both SDK layers, cross-references between Embedding Pipeline and RAG Context Assembly, flow-as-tool automation context clarified.
-**v1.3.2 (Feb 17, 2026):** Resolved 4 open questions. MCP servers are bundled (developers ship integrations, users connect) — replaced 7-step install state machine with 6-step connection flow. App Gallery: no hosted gallery for v0.1, zip upload + local render. Bundle ID: no rename, keep coworkai. MCP install registry: N/A (bundled servers, no user installation). Open questions reduced from 9 to 5.
-**v1.3.3 (Feb 17, 2026):** Resolved App-to-platform MCP transport question. Decision: preload IPC relay — apps use `window.cowork.*` → preload → main → Agents & RAG utility, same pattern as the main renderer. Local HTTP server ruled out (unnecessary attack surface; CVE-2025-49596 demonstrated the DNS rebinding risk class). MessagePort direct channel deferred — adds setup complexity for ~1ms savings on infrequent calls. Open questions reduced from 5 to 4. Fixed stale `#9` cross-reference to refusal message exclusion (now `#4`).
-**v1.3.4 (Feb 17, 2026):** Resolved refusal message exclusion question. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface solves it: a custom `RefusalFilter` processor strips refusal messages from context before sending to the LLM while leaving them in storage for UI display. Same pattern as Mastra's built-in `ToolCallFilter`. Updated Query Refusal section with resolved mechanism. Open questions reduced from 4 to 3.
-**v1.4 (Feb 17, 2026):** Added Apps Runtime section — was missing from the doc despite Apps being in v0.1 scope. Covers: WebContentsView rendering (sandboxed, partition-isolated, custom `cowork-app://` protocol), platform communication (preload IPC relay, decided), platform SDK API surface, per-app permission model. Added Q#4 (Apps runtime design) to open items — remaining decisions: preprocessing pipeline, Gemini API proxy, import resolution, manifest authoring. Updated Feature → Infrastructure Map with Apps Runtime cross-reference.
 **v1.5.2 (Feb 17, 2026):** Replaced `keytar` with Electron `safeStorage` API for MCP credential storage — `keytar` is deprecated and archived since 2022. `safeStorage` is built-in (Electron 15+), no additional native bindings. Updated OAuth flow section, ASAR unpack list, and added `cowork.apps` namespace to preload table. Decision log entry updated.
 
 **v1.5.1 (Feb 17, 2026):** Deferred `onMessage(callback)` from Platform SDK table — push channel moves to Phase 3. Sprint 8 / Phase 1B SDK is request/response only (`listTools`, `callTool`, `chat`, `getAppConfig`). Added cross-reference to phase-1b-sprint-plan.md exclusions list.
 
 **v1.5 (Feb 17, 2026):** Resolved Q#1 (Mastra in utility process) — marked as GO after PoC spike passed all 7 steps (Feb 17). Moved from open items to resolved list. Updated process model blockquote from "not yet proven" to "proven." Open questions reduced from 3 to 2.
+
 **v1.4.1 (Feb 17, 2026):** Resolved all 4 Apps runtime design questions. Two-track strategy: template apps (Cowork.ai-published Google AI Studio template, guaranteed compatible) + generic AI Studio exports (best-effort esbuild bundling). esbuild handles preprocessing + import resolution in one step. No Gemini proxy — apps use `window.cowork.chat()`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions. Added installation flow (7 steps from zip upload to sidesheet). Removed Q#4 from open items. Open questions reduced from 4 to 3.
+
+**v1.4 (Feb 17, 2026):** Added Apps Runtime section — was missing from the doc despite Apps being in v0.1 scope. Covers: WebContentsView rendering (sandboxed, partition-isolated, custom `cowork-app://` protocol), platform communication (preload IPC relay, decided), platform SDK API surface, per-app permission model. Added Q#4 (Apps runtime design) to open items — remaining decisions: preprocessing pipeline, Gemini API proxy, import resolution, manifest authoring. Updated Feature → Infrastructure Map with Apps Runtime cross-reference.
+
+**v1.3.4 (Feb 17, 2026):** Resolved refusal message exclusion question. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface solves it: a custom `RefusalFilter` processor strips refusal messages from context before sending to the LLM while leaving them in storage for UI display. Same pattern as Mastra's built-in `ToolCallFilter`. Updated Query Refusal section with resolved mechanism. Open questions reduced from 4 to 3.
+
+**v1.3.3 (Feb 17, 2026):** Resolved App-to-platform MCP transport question. Decision: preload IPC relay — apps use `window.cowork.*` → preload → main → Agents & RAG utility, same pattern as the main renderer. Local HTTP server ruled out (unnecessary attack surface; CVE-2025-49596 demonstrated the DNS rebinding risk class). MessagePort direct channel deferred — adds setup complexity for ~1ms savings on infrequent calls. Open questions reduced from 5 to 4. Fixed stale `#9` cross-reference to refusal message exclusion (now `#4`).
+
+**v1.3.2 (Feb 17, 2026):** Resolved 4 open questions. MCP servers are bundled (developers ship integrations, users connect) — replaced 7-step install state machine with 6-step connection flow. App Gallery: no hosted gallery for v0.1, zip upload + local render. Bundle ID: no rename, keep coworkai. MCP install registry: N/A (bundled servers, no user installation). Open questions reduced from 9 to 5.
+
+**v1.3.1 (Feb 17, 2026):** Normative behavior pass. Added: startup failure policy (timeout + degraded boot, service states, retry with backoff, degraded mode capabilities), service health IPC contract (`system:health` + `system:retry` channels), Keychain-backed MCP credential storage (replaces plaintext token files), crash-safe notification throttling (all counters persisted to cowork.db), PID-reuse safety for MCP orphan cleanup (executable path + argv hash identity check before kill). Review fixes: renamed "Chat (proactive)" to "Proactive Notifications", screen recording marked not-in-v0.1, MCPClient lifecycle added stopped→starting transition, Phase 2 renamed to "Mandatory approval tools", Phase 4 per-server policy defined, utility-to-utility DB-only communication documented, embedding model name normalized, DB access table updated to show both SDK layers, cross-references between Embedding Pipeline and RAG Context Assembly, flow-as-tool automation context clarified.
+
+**v1.3 (Feb 17, 2026):** Integrated 5 remaining adaptation guides (Jan, Chatbox, LobeChat, AnythingLLM, Cherry Studio). Added: database hardening (single-client access, vector index namespacing, schema migration strategy), model lifecycle (preflight fit check, download integrity, path safety), embedding pipeline (resumable ingestion, batch checkpoints, crash recovery), RAG context assembly (multi-source priority order, fillSourceWindow backfill, query refusal), agent execution model (persistent operations, instruction executor, max-step safety), multi-phase tool approval policy (6-phase hierarchy, mixed execution, approval state), MCP enhancements (orphan cleanup, client cache with dedup, notification-driven invalidation, per-call abort, 7-step install state machine), IPC observability (tracedInvoke, 4-process waterfall, typed IpcChannel constants, trace storage), automations engine (flow executor, variable substitution, block types, flow-as-tool), build configuration (ASAR unpack, post-pack patching, process-specific aliases, chunk inlining), complexity router askId grouping, explicit hardware reserve breakdown.
+
+**v1.2 (Feb 17, 2026):** Integrated adaptation guide decisions. Added: boot sequence for three processes, Playwright execution model, IPC streaming protocol with error handling, BaseManager + @channel IPC handler pattern, preload namespace design, Mastra Memory configuration mapping, sub-agent delegation pattern, MCP connection lifecycle and OAuth flow, AI SDK v6 in key decisions table.
+
+**v1.1 (Feb 17, 2026):** Three-provider model: Gemini direct (`@ai-sdk/google`) for free tier, OpenRouter for paid tiers, Ollama for local. Managed via AI SDK `createProviderRegistry()`. Updated system diagram, data flow, cloud brain section, complexity router, and key decisions table.
+
+**v1 (Feb 16, 2026):** Initial draft. Consolidates process model, data flow, IPC contract, capture layer, database layer, LLM stack, memory system, agent orchestration, feature-to-infrastructure mapping, thermal management, and directory structure from six existing decision/architecture docs into a single reference.
