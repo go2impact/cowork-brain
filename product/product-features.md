@@ -272,11 +272,11 @@ Five input streams in v0.1 provide the AI with work context. Screen recording is
 | Stream | Default | Used for |
 |--------|---------|----------|
 | **Window & app tracking** (active app, window title, browser URL via macOS Accessibility API) | On | Work context |
-| **Keystroke & input capture** (raw input → communication patterns) | Off (opt-in) | Communication pattern extraction |
+| **Keystroke & input capture** (raw input → communication patterns) | On | Communication pattern extraction |
 | **Focus detection** (extended single-app sessions, derived from window tracking) | On | Flow-state detection |
 | **Browser activity** (pages visited, actions taken during agent sessions) | On during sessions | MCP Browser, audit trail |
 | **Screen recording** (15fps during coached agent sessions) | Not in v0.1 (v0.2) | Agent coaching (v0.2) |
-| **Clipboard monitoring** (text on copy/paste) | Off (opt-in) | Context enrichment |
+| **Clipboard monitoring** (text on copy/paste) | On | Context enrichment |
 
 **Data flow:** Raw capture → local SQLite (libsql, WAL mode) → local processing → structured context (embeddings via local RAG) → agents query at action time. All on-device.
 
@@ -323,7 +323,7 @@ Cowork.ai observes your work context to be useful. That observation has to be cl
 |-----------|-------------|-----------|
 | **Connected app data** (Zendesk, Gmail, Slack) — only apps/channels you explicitly connect | On-device. Cloud inference is transient (zero-retention providers). | Until user disconnects app. |
 | **Activity context** (active app, window title, browser URL via Accessibility API) | On-device only. Never leaves device. | Rolling X days. |
-| **Keystroke & input capture** (opt-in, raw → communication patterns) | On-device only. | Target: raw discarded within minutes; patterns roll X days. |
+| **Keystroke & input capture** (raw → communication patterns) | On-device only. | Target: raw discarded within minutes; patterns roll X days. |
 | **Browser session data** (agent execution only, not general browsing) | On-device only. | Rolling X days. |
 | **Conversation memory** (chat history, working memory profile, observational logs) | On-device only. Never leaves device. | Chat history: session. Working memory: until user edits/deletes. Observations: long-term, compressed. |
 | **Semantic embeddings** (vector representations of activity data + conversations) | On-device only. Never leaves device. | Long-term; pruned per retention policy. |

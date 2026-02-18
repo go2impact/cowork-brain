@@ -20,18 +20,18 @@ All application code lives in separate repos. This file is the single source of 
 coworkai-desktop
 ├── @engineering-go2/coworkai-activity-capture  (native addon)
 ├── @engineering-go2/coworkai-keystroke-capture  (native addon)
-└── @engineering-go2/coworkai-agent             (being replaced by Mastra.ai)
+└── @mastra/core + @mastra/libsql              (agent orchestration)
 ```
 
 ## Build Status
 
-Last verified: 2026-02-17
+Last verified: 2026-02-18
 
 | Repo | npm install | Build | Notes |
 |------|------------|-------|-------|
 | coworkai-activity-capture | PASS | PASS | macOS arm64, Node 22.16.0 |
 | coworkai-keystroke-capture | PASS | PASS | macOS arm64, Node 22.16.0 |
-| coworkai-desktop | FAIL | — | Blocked: expired nut-tree token, missing coworkai-video-capture package |
+| coworkai-desktop | PASS | PASS | Unblocked via Sprints 3/4/4.5 (PRs #10, #11) |
 | coworkai-agent | — | — | Reference only, not maintained |
 
 ## Key Decisions
