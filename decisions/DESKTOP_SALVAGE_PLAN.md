@@ -5,7 +5,7 @@
 | **Status** | Decision |
 | **Last Updated** | 2026-02-17 |
 | **Decision** | **Gut all four repos in place. Keep packaging, capture addons, and capture orchestration. Kill tracking-specific code.** |
-| **Related** | [DESKTOP_FRAMEWORK_DECISION.md](./DESKTOP_FRAMEWORK_DECISION.md), [product-features.md](../product/product-features.md) |
+| **Related** | [product-features.md](../product/product-features.md) |
 | **Inputs** | Salvage plans from Gemini CLI, Codex, and Claude Opus — synthesized below |
 
 ---
@@ -125,7 +125,7 @@ There is no old product to maintain separately. We continue in the existing repo
 
 ### 2. Keep custom native addons — move to utility process
 
-**Original decision was to replace with open-source equivalents (Opus's recommendation). Reversed after deep research.** See [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](./NATIVE_ADDON_REPLACEMENT_RESEARCH.md) for the full analysis.
+**Original decision was to replace with open-source equivalents (Opus's recommendation). Reversed after deep research.**
 
 **Gemini was right.** The original Opus analysis compared syscalls but not capabilities. Deep research found critical gaps in both proposed replacements:
 
@@ -207,7 +207,7 @@ The agent is the orchestrator that sits between `coworkai-desktop` and the nativ
 
 ### 5. Multi-process architecture
 
-**Unanimous across all three plans.** Per `DESKTOP_FRAMEWORK_DECISION.md`:
+**Unanimous across all three plans:**
 
 | Process | Role |
 |---|---|
@@ -246,7 +246,7 @@ Three independent analyses disagreed on three points. The resolutions:
 
 | Conflict | Gemini | Codex | Opus | Resolution |
 |---|---|---|---|---|
-| **Custom native addons** | Keep 100% ("battle-tested") | Keep / integrate | Replace with `uiohook-napi` + `active-win` | **Keep.** Deep research found critical capability gaps in replacements. Gemini was right. See [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](./NATIVE_ADDON_REPLACEMENT_RESEARCH.md). |
+| **Custom native addons** | Keep 100% ("battle-tested") | Keep / integrate | Replace with `uiohook-napi` + `active-win` | **Keep.** Deep research found critical capability gaps in replacements. Gemini was right. |
 | **Timer module** | Keep midnight-split logic | Not addressed | Eliminate ("not a time tracker") | **Eliminate.** Contradicts product positioning. See decision #8. |
 | **Tracker SQLite schema** | Keep `activities`, `keystrokes`, `clipboards` tables | Normalize to new event schema | New schema entirely | **New schema.** Designed for AI retrieval, not employer reporting. See decision #4. |
 
@@ -281,7 +281,7 @@ Existing dependencies carried over: `coworkai-keystroke-capture`, `coworkai-acti
 
 ## Target Directory Structure
 
-Per `DESKTOP_FRAMEWORK_DECISION.md`, business logic stays in `core/` with zero Electron imports:
+Business logic stays in `core/` with zero Electron imports:
 
 ```
 src/
@@ -407,6 +407,6 @@ Full sprint plan: [architecture/phase-1b-sprint-plan.md](../architecture/phase-1
 
 **v3 (Feb 16, 2026):** Replaced fork-and-gut with gut-in-place for all repos. No old product to maintain — forking adds complexity for zero benefit. Reversed decision #3 — keep `coworkai-agent` active, gut tracking-specific code, retain capture orchestration (activity buffers, keystroke chunking, SQLite persistence). Added file-level specificity to decisions #1 and #3 (exact source files to keep vs gut). Updated repo disposition, dependencies, execution phases, and open questions.
 
-**v2 (Feb 16, 2026):** Reversed decision #2 — keep custom native addons instead of replacing with open-source equivalents. Deep research found critical capability gaps in uiohook-napi (no character mapping, Electron deadlock) and get-windows (no Windows URLs, no fallback strategy). Updated repo disposition, dependencies, directory structure, and execution phases. See [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](./NATIVE_ADDON_REPLACEMENT_RESEARCH.md).
+**v2 (Feb 16, 2026):** Reversed decision #2 — keep custom native addons instead of replacing with open-source equivalents. Deep research found critical capability gaps in uiohook-napi (no character mapping, Electron deadlock) and get-windows (no Windows URLs, no fallback strategy). Updated repo disposition, dependencies, directory structure, and execution phases.
 
 **v1 (Feb 16, 2026):** Initial decision. Synthesized from three independent salvage analyses (Gemini CLI, Codex, Claude Opus). Fork-and-gut strategy, native addon replacement, repo disposition, phased execution plan.

@@ -38,7 +38,7 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 - `gtm/` — Distribution channels, phased rollout, Go2 asset leverage
 - `decisions/` — **Most important directory.** Full audit trail with reasoning for every significant change
   - `decision-log.md` — Running log of all decisions (append here)
-  - `DESKTOP_FRAMEWORK_DECISION.md` and similar — Deep-dive decision docs and research references
+  - Deep-dive decision docs and research references
 - `prototypes/` — Links to UI demos and design concepts
 
 ## Key Technical Context
@@ -52,7 +52,7 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
 - **Complexity router:** Rule-based, not ML — must stay under 10ms
 - **Audio:** Whisper via Core ML on Apple Neural Engine, kept warm in memory on 16GB+ Macs
 - **Embeddings:** Qwen3-Embedding-0.6B via Ollama, stored via libsql built-in vector search (same DB as activity store)
-- **Desktop:** Electron (Swift and Tauri were evaluated and rejected — see decisions/DESKTOP_FRAMEWORK_DECISION.md)
+- **Desktop:** Electron (Swift and Tauri were evaluated and rejected)
 - **Design system:** Material Design 3 (M3) mandatory, dark theme first, maps to Tailwind
 - **v0.1 scope:** Mac-only (16GB+ Apple Silicon for local, 8GB gets cloud-only)
 
@@ -75,7 +75,7 @@ Changes in one doc often require updates to others. Watch for ripple effects:
 - Model change → update `architecture/llm-architecture.md` + `strategy/llm-strategy.md` + decision log
 - Price change → update `strategy/` + `gtm/` + decision log
 - UI/interaction change → update `design/design-system.md` + decision log
-- Stack/dependency change (e.g., database, native addons) → grep old name across entire repo, update: `CLAUDE.md`, `architecture/`, `decisions/DESKTOP_SALVAGE_PLAN.md`, `decisions/DESKTOP_FRAMEWORK_DECISION.md`, `decisions/decision-log.md`, `product/product-features.md`. Do NOT update `decisions/COWORKAI_TECHNICAL_REFERENCE.md` — it documents the existing codebase, not the target.
+- Stack/dependency change (e.g., database, native addons) → grep old name across entire repo, update: `CLAUDE.md`, `architecture/`, `decisions/DESKTOP_SALVAGE_PLAN.md`, `decisions/decision-log.md`, `product/product-features.md`. Do NOT update `decisions/COWORKAI_TECHNICAL_REFERENCE.md` — it documents the existing codebase, not the target.
 
 ## Review Ownership
 

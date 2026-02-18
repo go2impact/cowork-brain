@@ -14,10 +14,8 @@
 Inline: **Observer model choice** (line 612, needs benchmarking)
 
 **This doc consolidates decisions from:**
-- [DESKTOP_FRAMEWORK_DECISION.md](../decisions/DESKTOP_FRAMEWORK_DECISION.md) — why Electron, multi-process model
 - [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) — what we keep/gut, directory structure, execution phases
 - [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md) — why libsql
-- [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](../decisions/NATIVE_ADDON_REPLACEMENT_RESEARCH.md) — why custom native addons
 - [llm-architecture.md](./llm-architecture.md) — LLM stack, routing, memory, embeddings
 - [product-features.md](../product/product-features.md) — six features that define the product surface
 
@@ -358,7 +356,7 @@ The preload script exposes `window.cowork.*` with scoped namespaces:
 
 ## Native Capture Layer
 
-Two custom C++ N-API addons. Battle-tested in production. No viable open-source replacements (see [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](../decisions/NATIVE_ADDON_REPLACEMENT_RESEARCH.md)).
+Two custom C++ N-API addons. Battle-tested in production. No viable open-source replacements.
 
 ### `coworkai-keystroke-capture`
 
@@ -386,7 +384,7 @@ Active window detection, app identification, browser URL extraction.
 
 ### Capture Orchestration (adapted from `coworkai-agent`)
 
-Core buffering/chunking patterns are reused from the existing codebase. Key semantic change from the old architecture: **capture streams are independent peers, not parent-child.** Each stream writes self-contained rows (keystroke chunks carry their own `app_name`/`bundle_id`, clipboard events carry `source_app`). The `activity_session_id` on child tables is an optional correlation hint, not a structural dependency. Streams are correlated by overlapping timestamps at read time. See [CAPTURE_FLUSH_COUPLING_ANALYSIS.md](../decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md).
+Core buffering/chunking patterns are reused from the existing codebase. Key semantic change from the old architecture: **capture streams are independent peers, not parent-child.** Each stream writes self-contained rows (keystroke chunks carry their own `app_name`/`bundle_id`, clipboard events carry `source_app`). The `activity_session_id` on child tables is an optional correlation hint, not a structural dependency. Streams are correlated by overlapping timestamps at read time.
 
 | Component | What it does |
 |---|---|
@@ -654,6 +652,14 @@ Once embedded, this data is retrievable via the [RAG Context Assembly](#rag-cont
 
 ---
 
+## Context Pipeline
+
+How data reaches the Cowork agent and third-party apps at runtime. Two layers work together for the agent — automatic injection (application code, every message) and agent tools (agent decides when to call). Third-party apps use a separate typed **read lane** through `window.cowork.{context,user,data}.*` mapped to `cowork:read` via preload IPC relay.
+
+**Full specification:** [agent-context-pipeline.md](./agent-context-pipeline.md) — defines the two-layer agent path, app read-lane protocol (`cowork:read`), trusted app identity injection (`appId` from session partition), bounded-risk model, and required install-time disclosure for app data access.
+
+---
+
 ## RAG Context Assembly
 
 When the agent needs grounded context for a response, the RAG pipeline assembles material from multiple sources in priority order. Source data is ingested by the [Embedding Pipeline](#embedding-pipeline). This section describes the retrieval sub-pipeline within Mastra's `semanticRecall` layer — how grounded material is fetched and ranked. The overall context window composition (conversation history + working memory + semantic recall + observational memory) is handled by Mastra's Memory system (see [Memory System](#memory-system)).
@@ -912,7 +918,7 @@ The Automations feature (product-features.md §5) uses a flow executor for seque
 
 ## Apps Runtime
 
-Third-party apps (Google AI Studio exports) run inside the Electron shell. Each app is an isolated renderer process with no Node.js access. The runtime handles rendering, preprocessing, platform communication, and permissions. See [apps-runtime-architecture.md](./apps-runtime-architecture.md) for detailed research and options analysis.
+Third-party apps (Google AI Studio exports) run inside the Electron shell. Each app is an isolated renderer process with no Node.js access. The runtime handles rendering, preprocessing, platform communication, and read-lane access controls.
 
 ### Rendering
 
@@ -935,59 +941,65 @@ Navigation blocked (`will-navigate` → `preventDefault()`). `window.open()` blo
 **Preload IPC relay** — same pattern as the main renderer's `window.cowork.*`:
 
 ```
-App JS → window.cowork.callTool()
-  → preload (contextBridge) → ipcRenderer.invoke()
+App JS → window.cowork.context.activeWindow()
+  → preload (contextBridge) → ipcRenderer.invoke('cowork:read', { appId, ns, method, args })
   → main process relays to Agents & RAG utility
+  → agents read handler executes deterministic data query
   → result returns through same chain
 ```
 
-MCP tool calls are infrequent (~seconds between calls). The main-process relay hop adds ~1ms — irrelevant at this frequency. No network exposure, no port, no auth tokens.
+No network exposure, no port, no auth tokens. Main remains a transport relay only.
 
 ### Platform SDK
 
-Apps see `window.cowork.*` injected via the app's preload script. **Apps never talk to MCP servers, LLMs, or external services directly** — every call goes through the platform via IPC, where it is permission-checked, routed, and executed by the Agents & RAG utility process.
+Apps see `window.cowork.*` injected via the app's preload script. **Apps never talk to MCP servers, LLMs, or external services directly.** In Phase 1B, apps get read-only context/data methods routed through `cowork:read`.
 
-| Method | What it does |
-|---|---|
-| `listTools()` | Returns tools the app has permission to use (platform filters by grant) |
-| `callTool(name, args)` | Request the platform to execute an MCP tool on the app's behalf (permission-checked at preload, executed by Agents & RAG) |
-| `getAppConfig()` | App metadata, granted permissions, connected services |
+| Namespace | Methods | What it does |
+|---|---|---|
+| `context` | `activeWindow()`, `recentActivity(opts?)`, `currentTime()` | Focused app/window, recent activity summary, local time |
+| `user` | `preferences()`, `profile()` | User settings/profile used for app personalization |
+| `data` | `conversations(opts?)`, `search(query, opts?)` | App-scoped conversation history and semantic search over activity |
 
-> **Deferred:** `onMessage(callback)` (platform-to-app push channel for streaming agent responses) — deferred to Phase 3. Sprint 8 SDK is request/response only. See [phase-1b-sprint-plan.md](./phase-1b-sprint-plan.md) exclusions list.
+The SDK does NOT expose: `callTool`, `listTools`, `getAppConfig`, raw MCP protocol, OAuth tokens, API keys, agent internals, cross-app data, or Node.js/Electron APIs.
 
-The SDK does NOT expose: raw MCP protocol, OAuth tokens, API keys, agent internals, other apps' data, or Node.js/Electron APIs. Apps are pure UI — the platform owns all service connections and model access.
+### App Access Controls
 
-### Per-App Permissions
+Read-lane methods are default-allowed in Phase 1B (no per-method runtime permission prompts), but the model is not "no security."
 
-Each app declares required tools in a manifest (our format — AI Studio has no manifest). Every `callTool()` is permission-checked at the preload layer **before** it ever reaches the platform:
+- **Install-time disclosure is required:** before enabling an app, the installer shows the read-lane data envelope (activity/window context, user profile/preferences, app-scoped conversations, semantic search results).
+- **Trusted app identity:** preload derives `appId` from the `persist:app-{appId}` session partition and injects it into every `cowork:read` call. App JS cannot spoof identity.
+- **Scoped reads:** app-owned data methods (for example `data.conversations`) are always scoped by trusted `appId`.
+- **Process isolation:** app renderers remain sandboxed (`nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`) with no direct DB or utility-process access.
+
+Flow:
 
 ```
-App calls window.cowork.callTool('gmail_send_email', {...})
-  → preload: is 'gmail_send_email' in this app's granted tools? (checked against cowork.db)
-  → No → reject with PermissionDeniedError (never leaves the renderer process)
-  → Yes → ipcRenderer.invoke() → main → Agents & RAG utility executes the MCP call
-  → result returns through same IPC chain
+App calls window.cowork.data.conversations({ limit: 50 })
+  → preload injects trusted appId
+  → ipcRenderer.invoke('cowork:read', { appId, ns: 'data', method: 'conversations', args })
+  → main relay
+  → agents utility enforces appId scoping
+  → result returns
 ```
-
-Permission grants stored in `cowork.db`. Manifest apps get their declared permissions granted automatically at install — the user chose to install the app, that's the consent. No-manifest apps prompt the user to select permissions from available tools. Users can revoke any permission later in Settings. The app never holds credentials, never connects to services, and never knows which MCP server backs a given tool.
 
 ### Two-Track App Strategy
 
 **Track 1 — Template apps (happy path):** We publish a Cowork.ai-compatible Google AI Studio template. Apps built from it are guaranteed to work. The template:
-- Uses `window.cowork.*` for all platform + AI calls (no direct Gemini API)
-- Includes `cowork.manifest.json` declaring required tools/permissions
+- Uses `window.cowork.{context,user,data}.*` for platform data access
+- Avoids direct Gemini/OpenRouter calls
+- Can include optional `cowork.manifest.json` metadata for installer/display copy
 - Has a clean React structure that esbuild bundles without issues
 
-**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. No Gemini proxy — generic exports that call Gemini directly need to be adapted to use `window.cowork.callTool('platform_chat', ...)` per the guidelines.
+**Track 2 — Generic AI Studio exports (best-effort):** Users can upload any AI Studio export. esbuild attempts to bundle it. If it fails, show error + link to compatibility guidelines. Exports that assume direct LLM API calls or app-level tool execution must be adapted to the read-lane SDK for Phase 1B compatibility.
 
 ### Design Decisions (Resolved)
 
 | Question | Decision | Reasoning |
 |---|---|---|
 | Preprocessing pipeline | **esbuild bundle** | Fast (~10-100ms). Handles TSX/TS natively. Produces single output file that resolves all imports. Solves preprocessing + import resolution in one step. |
-| Gemini API proxy | **Not needed.** Template apps use `window.cowork.callTool('platform_chat', ...)` — platform handles model selection + API keys. Generic exports must adapt to the same call pattern per guidelines. | Eliminates an entire subsystem (protocol handler or Express proxy). Apps don't manage API keys or model selection — the platform does. |
+| Gemini API proxy | **Not needed in Phase 1B.** App runtime is read-lane-only; apps don't execute platform reasoning/tools directly. | Eliminates a subsystem that is unnecessary for read-only app data access. |
 | Import resolution | **esbuild bundles deps** — no import maps needed. esbuild resolves bare specifiers during bundling. | Falls out of the esbuild decision. No runtime import resolution, no CDN dependency, works offline. |
-| Manifest authoring | **Template includes `cowork.manifest.json`.** Manifest permissions auto-granted at install. Generic exports without manifest: user selects permissions manually. | Template apps get frictionless install. Generic exports fall back to user-selected permissions. All permissions revocable in Settings. |
+| Manifest authoring | **Optional metadata manifest.** No app tool-permission grants in Phase 1B read lane. | Keeps install UX simple while still allowing template metadata and disclosure copy improvements. |
 
 ### Installation Flow
 
@@ -1002,9 +1014,9 @@ User uploads .zip
     ↓
 4. If esbuild fails → show error + link to compatibility guidelines
     ↓
-5. Grant permissions: manifest present → auto-grant declared tools (unknown tool IDs ignored, re-evaluated when new MCP connections are added); no manifest → prompt user to select from available tools
+5. Show read-lane disclosure (what this app can read in Phase 1B); require explicit user confirmation
     ↓
-6. Store app metadata + permissions in cowork.db (revocable in Settings)
+6. Store app metadata + install record in cowork.db
     ↓
 7. App appears in sidesheet
 ```
@@ -1014,14 +1026,13 @@ User uploads .zip
 ```json
 {
   "name": "Zendesk Dashboard",
-  "description": "View and manage support tickets",
-  "permissions": {
-    "tools": ["zendesk_list_tickets", "zendesk_get_ticket", "zendesk_update_ticket", "platform_chat"]
-  }
+  "description": "View ticket context from your current activity",
+  "category": "CRM",
+  "dataUseDescription": "Uses your current window, recent activity, and app-scoped conversations to prioritize tickets."
 }
 ```
 
-Used at install time (manifest apps auto-grant declared tools; no-manifest apps prompt user selection) and runtime (preload checks every `callTool()` against granted permissions in `cowork.db`).
+Used for installer/app metadata only in Phase 1B. It does not grant runtime write/action permissions.
 
 ---
 
@@ -1031,7 +1042,7 @@ How each product feature maps to the underlying infrastructure:
 
 | Feature | Processes involved | Key infrastructure |
 |---|---|---|
-| **Apps** | Renderer + Agents & RAG | Each app in its own `WebContentsView` (sandboxed renderer process). Platform communication via preload IPC relay. Per-app permissions enforced at preload layer. v0.1: user uploads zip file, Cowork renders it locally. No hosted gallery. See [Apps Runtime](#apps-runtime). |
+| **Apps** | Renderer + Agents & RAG | Each app in its own `WebContentsView` (sandboxed renderer process). Platform communication via preload IPC read lane (`cowork:read`). Install-time disclosure is required before enabling app access to read-lane data. v0.1: user uploads zip file, Cowork renders it locally. No hosted gallery. See [Apps Runtime](#apps-runtime). |
 | **MCP Integrations** | Agents & RAG | MCP SDK manages connections. Health monitoring. OAuth. |
 | **Chat** (on-demand) | Renderer → Main → Agents & RAG | User message → IPC → complexity router → local/cloud brain → RAG context assembly → response → IPC → renderer |
 | **Proactive Notifications** | Agents & RAG → Main → macOS | Trigger engine polls capture data + MCP services → throttling gates → main dispatches macOS notification → user accepts/dismisses/expands. See [Proactive Notifications](#proactive-notifications). |
@@ -1158,13 +1169,13 @@ On 16GB → ~13GB usable → GREEN for DeepSeek-R1-8B (~5.5GB model + ~2GB KV ca
 
 | Decision | Choice | Why | Reference |
 |---|---|---|---|
-| Desktop framework | Electron | All dependencies are Node.js. Swift/Tauri = two runtimes for zero benefit. | [DESKTOP_FRAMEWORK_DECISION.md](../decisions/DESKTOP_FRAMEWORK_DECISION.md) |
+| Desktop framework | Electron | All dependencies are Node.js. Swift/Tauri = two runtimes for zero benefit. | [decision-log.md](../decisions/decision-log.md) |
 | Database | libsql | Native Mastra integration, built-in vectors, one SDK, proven in Electron | [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md) |
-| Native addons | Keep custom `coworkai-*` | Critical capability gaps in open-source alternatives. Electron deadlock in uiohook-napi. | [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](../decisions/NATIVE_ADDON_REPLACEMENT_RESEARCH.md) |
+| Native addons | Keep custom `coworkai-*` | Critical capability gaps in open-source alternatives. Electron deadlock in uiohook-napi. | [decision-log.md](../decisions/decision-log.md) |
 | Local LLM | DeepSeek-R1-8B via Ollama | Reasoning capability, Qwen base (Tagalog+EN), fits 16GB Mac | [llm-architecture.md](./llm-architecture.md) |
 | AI SDK version | Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) | Interface contract between agents and providers, and between main process and React frontend. v6 over v5: mechanical renames (automated codemod), `@ai-sdk/react` v3 in renderer. Mastra 1.0+ supports both natively. | [decision-log.md](../decisions/decision-log.md#2026-02-16--ai-sdk-version-v6-not-v5) |
 | Cloud providers | Gemini direct (`@ai-sdk/google`) + OpenRouter (`@ai-sdk/openai-compatible`) | Gemini direct for free tier (no middleman). OpenRouter for paid tiers (multi-provider gateway). Managed via AI SDK `createProviderRegistry()`. | [llm-architecture.md](./llm-architecture.md) |
-| Agent orchestration | Mastra.ai via `@mastra/libsql` | Native libsql integration. Target: embedded in Electron utility process (needs spike). | [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md) |
+| Agent orchestration | Mastra.ai via `@mastra/libsql` | Native libsql integration. Embedded in Electron utility process (proven via PoC spike, Feb 17 2026). | [phase-1b-sprint-plan.md — Sprint 0](./phase-1b-sprint-plan.md#sprint-0-complete-mastra-utility-process-spike) |
 | Embeddings | Qwen3-Embedding-0.6B via Ollama | ~500MB RAM, strong Tagalog+EN, stored in libsql built-in vector search | [llm-architecture.md](./llm-architecture.md) |
 | Audio | Whisper via Core ML (ANE) | Dedicated hardware, doesn't compete with GPU/CPU | [llm-architecture.md](./llm-architecture.md) |
 | Codebase strategy | Gut existing repos in place | No old product to maintain. Keep packaging, capture, orchestration. Kill tracking. | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) |
@@ -1173,7 +1184,7 @@ On 16GB → ~13GB usable → GREEN for DeepSeek-R1-8B (~5.5GB model + ~2GB KV ca
 
 ## Open Architecture Questions
 
-Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) and [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md). All blocking items below are now resolved.
+Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md). All blocking items below are now resolved.
 
 | # | Question | Impact |
 |---|---|---|
@@ -1186,9 +1197,9 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 - **App Gallery hosting** → No hosted gallery for v0.1. Users upload zip files, Cowork renders locally.
 - **Bundle ID rename** → No rename. Keep existing coworkai bundle ID.
 - **MCP install registry** → N/A. MCP servers are bundled, not user-installed. No registry needed.
-- **App-to-platform MCP transport** → Preload IPC relay. Apps call `window.cowork.*` → preload → `ipcRenderer.invoke()` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. No network exposure, no port, no auth tokens. MCP tool calls are infrequent (~seconds between calls) so the extra main-process relay hop (~1ms) is irrelevant.
+- **App-to-platform transport** → Preload IPC relay with read lane. Apps call `window.cowork.{context,user,data}.*` → preload injects trusted `appId` → `ipcRenderer.invoke('cowork:read', ...)` → main relays to Agents & RAG utility. Same IPC pattern as the main renderer. No network exposure, no port, no auth tokens.
 - **Refusal message exclusion** → Custom Mastra `MemoryProcessor`. A `RefusalFilter` processor strips refusal messages from the context window before sending to the LLM, while leaving them in storage for UI display. Mastra's `lastMessages` has no metadata filtering, but the `MemoryProcessor` interface (same pattern as the built-in `ToolCallFilter`) runs after fetch and before LLM — exactly the right hook.
-- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). No Gemini proxy — apps use `window.cowork.callTool('platform_chat', ...)`, platform handles model selection + API keys. Template includes `cowork.manifest.json` for scoped permissions; generic exports fall back to user-granted permissions at install time.
+- **Apps runtime design** → Two-track strategy: template apps (guaranteed compatible) + generic AI Studio exports (best-effort via esbuild). esbuild bundles TSX/TS + resolves all imports (~10-100ms). Phase 1B app runtime is read-lane-only (`cowork:read`) with install-time disclosure and no app-level tool execution.
 
 ---
 
@@ -1199,8 +1210,7 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 | LLM stack deep-dive (routing, budgets, billing) | [llm-architecture.md](./llm-architecture.md) |
 | Product features & capabilities | [product-features.md](../product/product-features.md) |
 | Salvage plan & execution phases | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) |
-| Mastra + Electron viability research | [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md) |
-| Apps runtime research & options | [apps-runtime-architecture.md](./apps-runtime-architecture.md) |
+| Context pipeline (how data reaches the agent and apps) | [agent-context-pipeline.md](./agent-context-pipeline.md) |
 | Design system & interaction model | [design-system.md](../design/design-system.md) |
 | Cost models & pricing | [llm-strategy.md](../strategy/llm-strategy.md) |
 
@@ -1208,7 +1218,11 @@ Questions carried forward from [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SA
 
 ## Changelog
 
-**v1.5.7 (Feb 17, 2026):** Independent capture streams. Updated data flow diagram and capture orchestration section to reflect streams as independent peers with denormalized app context. Each chunk/event carries its own `app_name`; `activity_session_id` is an optional correlation hint, not a structural dependency. Cross-reference to CAPTURE_FLUSH_COUPLING_ANALYSIS.md.
+**v1.5.9 (Feb 17, 2026):** Aligned Apps Runtime and Context Pipeline sections with the read-lane architecture in `agent-context-pipeline.md` v8 and `ipc-contract.md` v6. Replaced app `callTool`/permission-gate contract with typed read-only SDK (`window.cowork.{context,user,data}.*`) over `cowork:read`. Added explicit install-time disclosure requirement, trusted preload `appId` injection/scoping notes, updated feature-to-infrastructure mapping, and updated resolved-items wording for app transport/runtime design.
+
+**v1.5.8 (Feb 17, 2026):** Wording alignment pass for app permission flow. Updated preload permission-check example to reflect in-memory grants projection (`app_permissions` → preload grants) rather than per-call DB reads. Added explicit note that permission updates must refresh preload grants before subsequent tool calls (implementation mechanism intentionally unspecified).
+
+**v1.5.7 (Feb 17, 2026):** Independent capture streams. Updated data flow diagram and capture orchestration section to reflect streams as independent peers with denormalized app context. Each chunk/event carries its own `app_name`; `activity_session_id` is an optional correlation hint, not a structural dependency. Capture streams are independent peers correlated by overlapping timestamps.
 
 **v1.5.6 (Feb 17, 2026):** Capture flush semantics alignment. Replaced "1000-char activity flush" with decoupled chunk behavior: 1000-char cap flushes keystroke chunk only; activity session boundaries remain focus/idle/sleep/shutdown driven. Added explicit one-directional dependency wording (activity end flushes open chunk; chunk max-length never ends activity).
 

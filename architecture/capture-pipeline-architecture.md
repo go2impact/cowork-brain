@@ -7,7 +7,7 @@
 | Owner | Rustan |
 | Sprint | Phase 1B, Sprint 4 |
 | Source | `coworkai-desktop` implementation |
-| Related | [system-architecture.md](./system-architecture.md) § Native Capture Layer, [database-schema.md](./database-schema.md) § Capture Tables, [CAPTURE_FLUSH_COUPLING_ANALYSIS.md](../decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md) |
+| Related | [system-architecture.md](./system-architecture.md) § Native Capture Layer, [database-schema.md](./database-schema.md) § Capture Tables |
 
 This document is the implementation-level reference for how capture data moves from native addons into `cowork.db`, including exact write/flush triggers, IPC protocol, supervisor lifecycle, and full behavioral specification.
 
@@ -612,4 +612,4 @@ For the pre-gut baseline from the old `coworkai-agent` codebase (activity source
 
 ## Changelog
 
-**v1 (Feb 17, 2026):** Initial architecture doc. Ported from `coworkai-desktop/docs/architecture/capture-pipeline-reference.md` and adapted to cowork-brain conventions. Removed inline DB schema (canonical source: [database-schema.md](./database-schema.md)). Removed inline legacy reference (canonical source: [COWORKAI_TECHNICAL_REFERENCE.md](../decisions/COWORKAI_TECHNICAL_REFERENCE.md)). Added cross-references to system-architecture.md, database-schema.md, and CAPTURE_FLUSH_COUPLING_ANALYSIS.md.
+**v1 (Feb 17, 2026):** Initial architecture doc. Ported from `coworkai-desktop/docs/architecture/capture-pipeline-reference.md` and adapted to cowork-brain conventions. Removed inline DB schema (canonical source: [database-schema.md](./database-schema.md)). Removed inline legacy reference (canonical source: [COWORKAI_TECHNICAL_REFERENCE.md](../decisions/COWORKAI_TECHNICAL_REFERENCE.md)). Added cross-references to system-architecture.md and database-schema.md.

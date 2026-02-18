@@ -6,8 +6,8 @@
 | **Last Updated** | 2026-02-17 |
 | **Owner** | Rustan |
 | **Prerequisite** | Phase 1A complete (coworkai-desktop PR #8) |
-| **Goal** | Working Electron app with two utility processes, capture writing to libsql, basic chat with recent-activity context (direct SQL, no embeddings), basic MCP connection (agent can call tools), basic apps runtime (render an app in sandboxed WebContentsView), sidecar folder structure |
-| **Related** | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md), [system-architecture.md](./system-architecture.md), [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md), [Spike PR (DO NOT MERGE)](https://github.com/go2impact/coworkai-desktop/pull/9) |
+| **Goal** | Working Electron app with two utility processes, capture writing to libsql, basic chat with recent-activity context (direct SQL, no embeddings), basic MCP connection (agent can call tools), apps runtime with read lane SDK (`cowork:read`), sidecar folder structure |
+| **Related** | [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md), [system-architecture.md](./system-architecture.md), [Spike PR (DO NOT MERGE)](https://github.com/go2impact/coworkai-desktop/pull/9) |
 
 ---
 
@@ -25,7 +25,7 @@ From [system-architecture.md](./system-architecture.md) — Phase 1B cannot ship
 
 ## Phase Acceleration Note
 
-This sprint plan pulls the agents utility skeleton, basic chat, basic MCP, basic apps runtime, and renderer foundation forward into Phase 1B. [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) originally placed agent runtime in Phase 3 and product surfaces in Phase 5. The rationale: without a basic chat round-trip and working app runtime, there's no way to validate that the multi-process architecture actually works end-to-end. A capture process writing to a database with no consumer isn't a useful milestone. The salvage plan's phase definitions have been updated to reflect this expanded Phase 1B scope.
+This sprint plan pulls the agents utility skeleton, basic chat, basic MCP, apps runtime, and renderer foundation forward into Phase 1B. [DESKTOP_SALVAGE_PLAN.md](../decisions/DESKTOP_SALVAGE_PLAN.md) originally placed agent runtime in Phase 3 and product surfaces in Phase 5. The rationale: without a basic chat round-trip and working app runtime, there's no way to validate that the multi-process architecture actually works end-to-end. A capture process writing to a database with no consumer isn't a useful milestone. The salvage plan's phase definitions have been updated to reflect this expanded Phase 1B scope.
 
 Embedding pipeline, full RAG, complexity router, advanced MCP features, and automations remain in later phases.
 
@@ -88,7 +88,7 @@ Each sprint is estimated at 1-2 days for a single developer. The label "Sprint N
 **Blocks:** Everything else
 **Result: GO** — all 7 steps passed (Feb 17, 2026).
 
-The 7-step PoC from [MASTRA_ELECTRON_VIABILITY.md](../decisions/MASTRA_ELECTRON_VIABILITY.md):
+The 7-step PoC:
 
 1. Minimal Electron app + utility process — **PASS**
 2. Import `@mastra/core` + `@mastra/libsql` in utility process — **PASS**
@@ -143,17 +143,19 @@ Design the new schema from [product-features.md](../product/product-features.md)
 
 Full channel inventory + Zod schemas. [system-architecture.md § IPC Contract](./system-architecture.md#ipc-contract) defines the patterns — this sprint enumerates every channel.
 
-**Channels by namespace** (full inventory — Phase 1B implements all except `browser:*` and `automation:*`):
+**Channels by namespace** (full inventory — Phase 1B implements all except `browser:*`, `automation:*`, and deferred `apps:*` channels):
 
 | Namespace | Channels | Direction | Phase 1B? |
 |---|---|---|---|
 | `capture:*` | `getStatus`, `toggleStream`, `getStreamConfig` | Main ↔ Capture | Yes (Sprint 4) |
 | `chat:*` | `sendMessage`, `streamResponse`, `getThreads`, `getThread` | Renderer → Main → Agents | Yes (Sprint 5) |
 | `context:*` | `query`, `getRecentActivity`, `getContextCard` | Renderer → Main → Agents | Yes (Sprint 5) |
-| `mcp:*` | `connect`, `disconnect`, `listConnections`, `listTools`, `getStatus` | Renderer → Main → Agents | Yes (Sprint 7) |
-| `apps:*` | `install`, `list`, `remove`, `callTool`, `listTools`, `getAppConfig` | Renderer → Main → Agents | Yes (Sprint 8) |
-| `app:*` | `getSettings`, `setTheme` | Renderer → Main | Yes (Sprint 6) |
-| `system:*` | `health`, `retry` | Main → Renderer (health), Renderer → Main (retry) | Yes (Sprint 6) |
+| `mcp:*` | `connect`, `disconnect`, `listConnections`, `listTools`, `getStatus` | Renderer → Main → Agents | Yes (Sprint 5) |
+| `cowork:*` | `read` | App → Main → Agents | Yes (Sprint 5) |
+| `apps:*` | `install`, `list`, `remove` | Renderer → Main → Agents | Yes (Sprint 5) |
+| `apps:*` | `callTool`, `listTools`, `getAppConfig` | Renderer → Main → Agents | Deferred (read lane replaces — see [agent-context-pipeline.md](./agent-context-pipeline.md)) |
+| `app:*` | `getSettings`, `setTheme` | Renderer → Main | Yes (Sprint 5) |
+| `system:*` | `health`, `retry` | Main → Renderer (health), Renderer → Main (retry) | Yes (Sprint 5) |
 | `browser:*` | `execute`, `getState`, `stop`, `getExecutionLog` | Renderer → Main → Agents → Playwright | Phase 4 |
 | `automation:*` | `create`, `update`, `delete`, `trigger`, `getRunLog` | Renderer → Main → Agents | Phase 4 |
 
@@ -198,7 +200,7 @@ Transform coworkai-desktop from gutted-tracker to sidecar folder structure. Stru
 **Output:** Clean folder structure, libsql installed, build passes, app launches (does nothing new yet).
 
 **What was actually implemented (deviations from plan):**
-- `src/renderer/views/` directories deferred to Sprint 6 (collides with existing renderer HTML entry points)
+- `src/renderer/views/` directories deferred to Sprint 5 (collides with existing renderer HTML entry points)
 - Mastra utility spike removed from build path (files kept on disk for reference)
 - Logger `fs-extra` → native `fs`; `fs-extra` added as explicit devDependency for CSS generator
 - `src/core/store/database.ts` created with `DB_FILENAME` and `toDbUrl()` helper
@@ -310,11 +312,11 @@ Stand up the capture worker — native addons loading, event-driven activity tra
 ### Sprint 4.5: Renderer Foundation + Component Library Integration
 
 **Repo:** coworkai-desktop
-**Blocks:** Sprint 6
+**Blocks:** Sprint 5
 **Depends on:** Sprint 4 + cowork-ui component library (complete)
 **Reference:** [phase-1b-sprint-4.5-renderer-foundation.md](https://github.com/go2impact/coworkai-desktop/blob/main/docs/plans/phase-1b-sprint-4.5-renderer-foundation.md) — full implementation plan in desktop repo
 
-Split from Sprint 6 to unblock frontend development. Component integration, theme system, and routing shell can proceed immediately after Sprint 4 merges — in parallel with Sprint 5 (agents process). Without this split, no frontend work could happen until Sprint 5 ships.
+Split out to unblock frontend foundation work. Component integration, theme system, and routing shell can proceed immediately after Sprint 4 merges. Sprint 5 depends on this — it wires the placeholder views to live data.
 
 **Work:**
 
@@ -328,23 +330,25 @@ Split from Sprint 6 to unblock frontend development. Component integration, them
 
 **Validate:** `npm install` → `tsc --noEmit` → `npm start` → routing shell renders with M3 dark theme → all 4 view stubs navigate correctly → setup window still works with legacy components
 
-**Output:** Production M3 component library integrated, routing shell with 4 placeholder views, path aliases working, theme system replaced. Frontend developers can build views against real components while Sprint 5 runs in parallel.
+**Output:** Production M3 component library integrated, routing shell with 4 placeholder views, path aliases working, theme system replaced. Sprint 5 wires these placeholder views to live data.
 
 ---
 
-### Sprint 5: Agents & RAG Utility Process Skeleton
+### Sprint 5: Agent Runtime + MCP + Renderer Wiring
 
 **Repo:** coworkai-desktop
-**Blocks:** Sprint 6
-**Depends on:** Sprint 1 (schema) + Sprint 2 (IPC contract) + Sprint 3 (folder structure)
+**Depends on:** Sprint 1 (schema) + Sprint 2 (IPC contract) + Sprint 3 (folder structure) + Sprint 4.5 (renderer foundation)
+**Reference:** [agent-context-pipeline.md](./agent-context-pipeline.md) — communication architecture, read lane protocol, two-layer runtime. [ipc-contract.md](./ipc-contract.md) — channel schemas, streaming protocol. [database-schema.md](./database-schema.md) — table ownership, DDL.
 
-Wire the agents worker based on Sprint 0 spike learnings. Skeleton — not full agent logic.
+Implement the full agent runtime, MCP integration, renderer views, apps runtime, and app read lane — everything defined in [agent-context-pipeline.md](./agent-context-pipeline.md). This is the final Phase 1B implementation sprint — everything before this is foundation (folder structure, schema, capture, component library), everything after is Phase 2+.
 
 **Work:**
 
-1. **Install agent dependencies:**
-   - `npm install @mastra/core @mastra/libsql`
-   - Update forge rebuild list if `@mastra/libsql` includes native bindings
+1. **Install dependencies:**
+   - Agent: `npm install @mastra/core @mastra/libsql`
+   - MCP: `npm install @modelcontextprotocol/sdk`
+   - Renderer: `npm install zustand react-markdown remark-gfm remark-math rehype-katex shiki`
+   - Update forge rebuild list if `@mastra/libsql` includes native bindings. No native bindings for MCP — Electron `safeStorage` is built-in (available since Electron 15, we're on 37.1.0).
 
 2. **Wire `agents.worker.ts`:**
    - Init libsql async client → same `cowork.db`
@@ -353,169 +357,84 @@ Wire the agents worker based on Sprint 0 spike learnings. Skeleton — not full 
    - Run schema migration for agent-owned tables
    - Signal ready to main
 
-3. **Wire main ↔ agents IPC:**
-   - Main spawns agents utility process on boot
-   - Implement `chat:sendMessage` → query recent capture rows → inject as system context → `agent.generate()` → response back. This is how chat becomes activity-aware without embeddings — direct SQL before each agent call.
-   - Implement streaming path: `agent.stream()` → MessagePort → renderer (ACK gate pattern from spike)
-   - Implement `context:getRecentActivity` → direct SQL query against capture tables → return recent activity for Context view (no embeddings, no RAG — just recent rows)
+3. **Chat pipeline (agent path — Layer 1 + Layer 2 per [agent-context-pipeline.md](./agent-context-pipeline.md)):**
+   - `chat:sendMessage` → query recent capture rows → inject as system context (Layer 1: automatic context injection) → `agent.generate()` → response back. This is how chat becomes activity-aware without embeddings — direct SQL before each agent call.
+   - Streaming path: `agent.stream()` → MessagePort → renderer (ACK gate pattern from spike)
+   - Agent can invoke tools during reasoning (Layer 2: tool execution) — both platform tools and MCP tools
+   - `context:getRecentActivity` → direct SQL query against capture tables → return recent activity for Context view (no embeddings, no RAG — just recent rows)
 
-4. **Boot sequence:**
-   - Main spawns both utilities in parallel
-   - 10s timeout → degraded mode if either fails
-   - `system:health` events to renderer
-
-5. **Validate:** App launches → both utility processes boot → send a test chat message → get agent response
-
-**Output:** Two utility processes running. Basic chat round-trip working end-to-end (main → agents → LLM → response → renderer).
-
----
-
-### Sprint 6: End-to-End Smoke Test
-
-**Repo:** coworkai-desktop
-**Depends on:** Sprint 4.5 (renderer foundation) + Sprint 5 (agents process)
-
-Wire the placeholder views from Sprint 4.5 to live data and validate the full capture → chat pipeline.
-
-**Work:**
-
-1. **Preload script:** Expose `window.cowork.*` namespaces (chat, capture, context, system, app)
-2. **Install remaining renderer deps:** `zustand`, `react-markdown`, `remark-gfm`, `remark-math`, `rehype-katex`, `shiki`
-3. **Chat view:** Wire placeholder to `@ai-sdk/react` v3 `useChat()` with IPC transport, markdown rendering
-4. **Context view:** Query capture data from cowork.db via agents process, display recent activity
-5. **Settings view:** Wire stream toggles (on/off for each capture stream), service health status
-6. **Apps route:** Placeholder shell until Sprint 8 populates it
-
-**End-to-end validation — the full pipeline:**
-
-```
-User types in app
-  → capture records window/app/URL
-  → flush to cowork.db
-  → user opens chat
-  → asks "what was I just doing?"
-  → agents process queries recent capture data (direct SQL, no embeddings)
-  → injects activity context into agent prompt
-  → routes to local/cloud brain
-  → streams response back
-  → renders in chat UI
-```
-
-Phase 1B uses direct SQL queries against capture tables for activity context. The full embedding pipeline and RAG retrieval (vector search, backfill, observation anchors) come in Phase 2.
-
-**Output:** Working end-to-end prototype. Capture → storage → retrieval → AI response → UI.
-
----
-
-### Sprint 7: Basic MCP Connection
-
-**Repo:** coworkai-desktop
-**Depends on:** Sprint 5 (agents process) + Sprint 6 (renderer for UI)
-
-Connect one MCP server, expose its tools to the agent, show connection status in the UI. This is the minimum needed for the agent to interact with external services.
-
-**What's in scope:**
-
-| In | Out (later phases) |
-|---|---|
-| `@modelcontextprotocol/sdk` integration in agents worker | OAuth flow (use API key auth only for v0.1) |
-| MCPManager: start/stop stdio MCP server, list tools, health ping | Orphan cleanup, client cache dedup, notification-driven invalidation |
-| Agent can call MCP tools during chat (Mastra tool integration) | Per-call abort, cost-based safety rails |
-| `mcp:connect`, `disconnect`, `listConnections`, `listTools`, `getStatus` IPC handlers | Full 6-step connection flow UI |
-| Connection state persisted in libsql `mcp_servers` table | Token refresh, expiry detection |
-| Integrations view in renderer: list connected services, connect/disconnect, status dots | Per-server approval policies |
-| Electron `safeStorage` API for credential encryption (replaces deprecated `keytar`) | |
-
-**Work:**
-
-1. **Install MCP dependencies:**
-   - `npm install @modelcontextprotocol/sdk`
-   - No native bindings needed — Electron `safeStorage` is built-in (available since Electron 15, we're on 37.1.0)
-
-2. **Wire MCPManager in `agents.worker.ts`:**
-   - Start bundled stdio MCP server with config from `mcp_servers` table
-   - List tools from connected server → register as Mastra tools
-   - Health ping on startup, status lifecycle (`starting` → `running` → `error`)
+4. **MCP integration:**
+   - MCPManager in agents worker: start/stop stdio MCP server with config from `mcp_servers` table, list tools → register as Mastra tools, health ping on startup, status lifecycle (`starting` → `running` → `error`)
    - Credential encryption/decryption via Electron `safeStorage` API (uses macOS Keychain / Windows DPAPI under the hood)
-
-3. **Wire MCP IPC handlers:**
+   - Agent can call MCP tools during chat (Mastra tool integration)
    - `mcp:connect` → start server, validate, save config to libsql
    - `mcp:disconnect` → stop server, update status
    - `mcp:listConnections` → return all servers with status
    - `mcp:listTools` → return tools from connected servers
    - `mcp:getStatus` → return connection health
 
-4. **Integrations view in renderer:**
-   - List bundled integrations (hardcoded for v0.1 — e.g., one test server)
-   - Connect: API key input → encrypt via `safeStorage` → persist → start server
-   - Show status dots (green/red/grey)
-   - Show available tools per connection
+5. **App read lane (`cowork:read` per [agent-context-pipeline.md](./agent-context-pipeline.md)):**
+   - Register `cowork:read` IPC handler in main (relay to agents utility)
+   - Implement namespace dispatch in agents utility: `context.*`, `user.*`, `data.*` handlers
+   - Data handlers query `cowork.db` and return structured results
 
-5. **Validate:** Connect to one MCP server → agent uses its tools in a chat response → tools appear in Integrations view
+6. **Apps runtime:**
+   - Register `cowork-app://` protocol: privileged scheme (`standard`, `secure`, `supportFetchAPI`), serves files from `~/Library/Application Support/cowork-ai/apps/{appId}/`, path validation via `path.relative()` + prefix check (no traversal)
+   - App installation pipeline: upload zip → extract to temp → **archive hardening** (reject absolute paths / `..` segments for zip-slip, reject symlinks, validate uncompressed size for zip bomb) → move to `apps/{appId}/` → read `cowork.manifest.json` → esbuild bundle (TSX/TS → single JS) → store metadata in libsql
+   - App rendering: `WebContentsView` per app with sandbox settings (`contextIsolation`, `sandbox`, `nodeIntegration: false`, `partition: persist:app-${appId}`), block navigation + `window.open()`
+   - App preload: expose `window.cowork.{context,user,data}.*` read lane SDK — each method maps to `ipcRenderer.invoke('cowork:read', { appId, ns, method, args })`. App JS never passes `appId`; preload derives it from session partition. No permission gate for reads (default-allowed per [agent-context-pipeline.md](./agent-context-pipeline.md)).
+   - `apps:install`, `apps:list`, `apps:remove` IPC handlers
 
-**Output:** Agent can call external service tools during chat. One MCP server connected and working end-to-end.
+7. **Preload script:** Expose `window.cowork.*` namespaces for main renderer (chat, capture, context, mcp, system, app)
 
----
+8. **Renderer views:**
+   - **Chat view:** Wire placeholder from Sprint 4.5 to `@ai-sdk/react` v3 `useChat()` with IPC transport, markdown rendering (react-markdown + remark-gfm + Shiki)
+   - **Context view:** Query capture data via agents process, display recent activity
+   - **Settings view:** Wire stream toggles (on/off for each capture stream), service health status
+   - **Integrations view:** List bundled integrations (hardcoded for v0.1 — e.g., one test server), connect via API key input → encrypt via `safeStorage` → persist → start server, status dots (green/red/grey), available tools per connection
+   - **Apps view:** List installed apps with status, upload zip → install flow, click app → open in WebContentsView alongside main renderer, remove app option
 
-### Sprint 8: Basic Apps Runtime
+9. **Boot sequence:**
+   - Main spawns both utility processes in parallel
+   - 10s timeout → degraded mode if either fails
+   - `system:health` events to renderer
 
-**Repo:** coworkai-desktop
-**Depends on:** Sprint 6 (renderer) + Sprint 7 (MCP tools available for apps to call)
+10. **End-to-end validation — the full pipeline:**
 
-Render a third-party app (Google AI Studio export) in a sandboxed WebContentsView. The app can call MCP tools through the platform SDK, including a platform-provided `platform_chat` tool for agent-as-tool use cases.
+    ```
+    User types in app
+      → capture records window/app/URL
+      → flush to cowork.db
+      → user opens chat
+      → asks "what was I just doing?"
+      → agents process queries recent capture data (direct SQL, no embeddings)
+      → injects activity context into agent prompt
+      → routes to local/cloud brain
+      → streams response back
+      → renders in chat UI
+    ```
 
-**What's in scope:**
+    Plus: connect to one MCP server → agent uses its tools in a chat response → tools appear in Integrations view.
+
+    Plus: upload a template app zip → archive hardening passes → esbuild bundles → app renders in WebContentsView → app calls `window.cowork.context.activeWindow()` → read lane returns data.
+
+    Phase 1B uses direct SQL queries against capture tables for activity context. The full embedding pipeline and RAG retrieval (vector search, backfill, observation anchors) come in Phase 2.
+
+**What's in scope vs deferred:**
 
 | In | Out (later phases) |
 |---|---|
-| WebContentsView per app (sandboxed, partition-isolated) | Generic AI Studio export support (template apps only) |
-| Custom `cowork-app://` protocol with path traversal protection | Full App Gallery UI |
-| App preload: `window.cowork.callTool()`, `window.cowork.listTools()`, `window.cowork.getAppConfig()` | `onMessage()` push channel (platform → app event subscription) |
-| esbuild bundling of uploaded zip → single JS output | Advanced permission management UI |
-| `cowork.manifest.json` parsing → auto-grant declared permissions | |
-| Per-app permission check at preload layer (before IPC) | |
-| App metadata + permissions stored in libsql | |
-| Apps view in renderer: list installed apps, upload zip, launch app | |
+| Agent runtime with Layer 1 + Layer 2 | Embedding pipeline, full RAG (Phase 2) |
+| Streaming via MessagePort (ACK gate) | Full complexity router (Phase 2 — Sprint 5 registers providers but hardcodes a single default) |
+| MCP stdio server, list tools, health ping | OAuth flow (API key auth only for v0.1) |
+| Agent calls MCP tools during chat | Orphan cleanup, notification-driven invalidation, per-call abort |
+| `cowork:read` namespace dispatch + app preload SDK | Generic AI Studio export support (template apps only for v0.1) |
+| WebContentsView per app (sandboxed, partition-isolated) | Full App Gallery UI, advanced permission management |
+| `cowork-app://` protocol, esbuild bundling, archive hardening | App `onMessage()` push channel (Phase 3) |
+| Electron `safeStorage` for credentials | Token refresh, expiry detection, per-server approval policies |
+| 5 product views (Chat, Context, Settings, Integrations, Apps) | App write/action capabilities (designed if use cases emerge) |
 
-**Work:**
-
-1. **Register `cowork-app://` protocol:**
-   - Privileged scheme (`standard`, `secure`, `supportFetchAPI`)
-   - Serves files from `~/Library/Application Support/cowork-ai/apps/{appId}/`
-   - Path validation: `path.relative()` + prefix check (no traversal)
-
-2. **App installation pipeline:**
-   - Upload zip → extract to temp directory first
-   - **Archive hardening before extraction reaches apps directory:**
-     - Reject entries with absolute paths or `..` path segments (zip-slip)
-     - Reject symlinks entirely (symlink escape)
-     - Validate total uncompressed size against limit (zip bomb)
-     - Only move to `apps/{appId}/` after all entries pass validation
-   - Read `cowork.manifest.json` (or `package.json` for metadata)
-   - esbuild bundle: TSX/TS → single JS output, deps resolved
-   - If esbuild fails → show error with details
-   - Auto-grant manifest permissions, store metadata in libsql
-
-3. **App rendering:**
-   - Create `WebContentsView` per app with sandbox settings (`contextIsolation`, `sandbox`, `nodeIntegration: false`, `partition: persist:app-${appId}`)
-   - Block navigation (`will-navigate` → `preventDefault()`) and `window.open()`
-   - Load `cowork-app://{appId}/index.html`
-
-4. **App preload + platform SDK:**
-   - `window.cowork.callTool(name, args)` → permission check → `ipcRenderer.invoke()` → main → agents
-   - Agent reasoning path: `window.cowork.callTool('platform_chat', { message })` (same tool permission path as any other MCP tool)
-   - `window.cowork.listTools()` → return tools the app has permission to use
-   - `window.cowork.getAppConfig()` → app metadata, granted permissions
-
-5. **Apps view in renderer:**
-   - List installed apps with status
-   - Upload zip button → install flow
-   - Click app → open in WebContentsView alongside main renderer
-   - Remove app option
-
-6. **Validate:** Upload a template app zip → archive hardening passes → esbuild bundles → app renders in WebContentsView → app calls `window.cowork.callTool()` → MCP tool executes → result returned to app → app calls `window.cowork.callTool('platform_chat', ...)` → agent response returns
-
-**Output:** One app running in sandboxed WebContentsView, calling MCP tools through the platform. **This completes Phase 1B.**
+**Output:** Full agent runtime running. Chat round-trip end-to-end with context injection and streaming. MCP tools callable by agent. Apps running in sandboxed WebContentsViews with read lane access. All product views wired to live data. **This completes Phase 1B.**
 
 ---
 
@@ -526,36 +445,29 @@ Sprint 0: Mastra Spike
   (COMPLETE — GO)
         │
         ▼
-Sprint 1: Schema Design ──────────┬──────────────┐
-  (COMPLETE)                      │              │
-                                  │              │
-Sprint 2: IPC Contract ───────────┤              │
-  (COMPLETE)                      │              │
-                                  │              │
-Sprint 3: Folder Restructure ─────┤              │
-  (COMPLETE — PR #10)             │              │
-                                  ▼              ▼
-                    Sprint 4: Capture    Sprint 5: Agents
-                    (COMPLETE — PR #11)       │
-                         │                    │
-                         ▼                    │
-                    Sprint 4.5: Renderer      │
-                    Foundation                │
-                         │                    │
-                         └────────┬───────────┘
-                                  ▼
-                    Sprint 6: E2E Smoke Test
+Sprint 1: Schema Design ──────────┐
+  (COMPLETE)                      │
                                   │
-                                  ▼
-                    Sprint 7: Basic MCP Connection
+Sprint 2: IPC Contract ───────────┤
+  (COMPLETE)                      │
                                   │
+Sprint 3: Folder Restructure ─────┤
+  (COMPLETE — PR #10)             │
                                   ▼
-                    Sprint 8: Basic Apps Runtime
+                    Sprint 4: Capture
+                    (COMPLETE — PR #11)
+                         │
+                         ▼
+                    Sprint 4.5: Renderer Foundation
+                         │
+                         ▼
+                    Sprint 5: Agent Runtime + MCP
+                             + Renderer Wiring
 ```
 
 Sprints 0, 1, 2, 3, and 4 are complete.
-Sprint 4.5 is unblocked and ready for implementation. Sprint 5 can run in parallel with Sprint 4.5.
-Sprint 6 validates the core runtime end-to-end. Sprint 7 adds external service connectivity. Sprint 8 adds the apps runtime.
+Sprint 4.5 is unblocked and ready for implementation.
+Sprint 5 depends on Sprint 4.5 (renderer foundation) plus Sprints 1-3 (schema, IPC contract, folder structure). It is the final implementation sprint — completing it delivers the full Phase 1B runtime.
 
 **Parallel track:** M3 component library built independently, integrated in Sprint 4.5.
 
@@ -573,17 +485,20 @@ Explicitly deferred to later phases:
 - Full RAG retrieval (Phase 2 — vector search, backfill, observation anchors)
 - Full complexity router (Phase 2 — Sprint 5 registers providers but hardcodes a single default, routing logic comes later)
 - Observational memory compression (Phase 2)
-- OAuth MCP auth (Phase 3 — Sprint 7 uses API key auth only)
-- Generic AI Studio export support (Phase 5 — Sprint 8 supports template apps only)
-- Full App Gallery UI (Phase 5)
+- OAuth MCP auth (Phase 3 — Sprint 5 uses API key auth only)
 - MCP advanced features: orphan cleanup, notification-driven invalidation, per-call abort (Phase 3)
-- App `onMessage()` push channel — platform-to-app event subscription (Phase 3 — Sprint 8 SDK is request/response only: `callTool`, `listTools`, `getAppConfig`)
+- Generic AI Studio export support (Phase 5 — Sprint 5 supports template apps only)
+- Full App Gallery UI (Phase 5)
+- App write/action capabilities — tool execution, agent invocation from apps (designed if concrete use cases emerge, per [agent-context-pipeline.md](./agent-context-pipeline.md))
+- App `onMessage()` push channel — platform-to-app event subscription (Phase 3 — app SDK is read lane only: `window.cowork.{context,user,data}.*`)
 
-Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, storage, basic chat, MCP tool calling, and sandboxed apps. Embedding/RAG, automations, browser automation, and advanced MCP features layer on top.
+Phase 1B delivers the **full runtime** — processes, IPC, capture, storage, basic chat, MCP tool calling, sandboxed apps with read lane access, and all product views. Embedding/RAG, automations, browser automation, and advanced MCP features layer on top.
 
 ---
 
 ## Changelog
+
+**v17 (Feb 17, 2026):** Major sprint plan consolidation. Merged Sprints 5 (Agents Utility), 6 (E2E Smoke Test), 7 (Basic MCP), and 8 (Basic Apps Runtime) into a single Sprint 5 (Agent Runtime + MCP + Renderer Wiring) that implements the full [agent-context-pipeline.md](./agent-context-pipeline.md) spec: two-layer agent runtime, chat pipeline with streaming, MCP integration, apps runtime with read lane SDK (replaces old `callTool`/`platform_chat` model), all product views, and `cowork:read` read lane infrastructure. Apps runtime included — WebContentsView, `cowork-app://` protocol, esbuild bundling, archive hardening — but app SDK is now read-only (`window.cowork.{context,user,data}.*`) instead of tool-calling. Updated goal line, phase acceleration note, Sprint 2 channel inventory (added `cowork:read`, marked `apps:callTool`/`listTools`/`getAppConfig` as deferred), dependency graph (simplified to linear chain ending at Sprint 5), and "What Phase 1B Does NOT Include".
 
 **v16 (Feb 17, 2026):** Marked Sprint 4 (Capture Utility Process) as complete — PR #11 merged. Added Sprint 4.5 (Renderer Foundation + Component Library Integration) — split from Sprint 6 to unblock frontend development in parallel with Sprint 5. Sprint 6 renamed to "E2E Smoke Test" with component integration work removed (now in Sprint 4.5). Updated dependency graph, status summary, and parallel track references. Component count corrected from 15 to 19.
 
@@ -597,7 +512,7 @@ Phase 1B delivers the **full runtime skeleton** — processes, IPC, capture, sto
 
 **v11 (Feb 17, 2026):** Apps runtime permission model alignment pass. Removed direct app SDK `window.cowork.chat()` references to match product rule "Apps get tools, not agents." Sprint 8 now routes agent-style requests through `window.cowork.callTool('platform_chat', ...)` (agent-as-tool), and the request/response SDK list was updated accordingly.
 
-**v10 (Feb 17, 2026):** Review fixes. (1) Fixed dependency graph — Sprint 5 now has incoming arrows from Sprints 1/2/3 matching prose. (2) Restored changelog dates to Feb 17 (v8/v9 were incorrectly changed to Feb 16). (3) Replaced `keytar` with Electron `safeStorage` API across Sprint 7 — zero additional native bindings, removes ASAR unpack entry. Updated system-architecture.md and decision log. (4) Added `cowork.apps` namespace to system-architecture.md preload table. (5) Resolved Sprint 2 output location — `architecture/ipc-contract.md` (new doc). (6) Clarified Sprint 6 Apps route is a placeholder shell until Sprint 8. (7) Marked 3 resolved open questions in DESKTOP_SALVAGE_PLAN.md with cross-references. (8) Updated MASTRA_ELECTRON_VIABILITY.md status from "Research" to "Resolved — GO".
+**v10 (Feb 17, 2026):** Review fixes. (1) Fixed dependency graph — Sprint 5 now has incoming arrows from Sprints 1/2/3 matching prose. (2) Restored changelog dates to Feb 17 (v8/v9 were incorrectly changed to Feb 16). (3) Replaced `keytar` with Electron `safeStorage` API across Sprint 7 — zero additional native bindings, removes ASAR unpack entry. Updated system-architecture.md and decision log. (4) Added `cowork.apps` namespace to system-architecture.md preload table. (5) Resolved Sprint 2 output location — `architecture/ipc-contract.md` (new doc). (6) Clarified Sprint 6 Apps route is a placeholder shell until Sprint 8. (7) Marked 3 resolved open questions in DESKTOP_SALVAGE_PLAN.md with cross-references. (8) Updated Mastra viability status to "Resolved — GO".
 
 **v9 (Feb 17, 2026):** Added `listTools` and `getConfig` to `apps:*` IPC channel table (were in Sprint 8 preload SDK but missing from Sprint 2 inventory). Synced system-architecture.md Platform SDK table — `onMessage()` moved to deferred note with cross-reference. Fixed metadata date.
 

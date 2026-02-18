@@ -59,7 +59,6 @@ Each row carries its own app context (keystroke chunks have `app_name`/`bundle_i
 
 The old `coworkai-agent` codebase used a parent-child model (keystrokes were children of activities, linked by FK) because the sync pipeline shipped activities with nested keystrokes as payload containers. That sync pipeline is gone. The new architecture stores data locally — streams are peers correlated by overlapping timestamps, not parent-child entities.
 
-See [CAPTURE_FLUSH_COUPLING_ANALYSIS.md](../decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md) for the full reasoning.
 
 ### Why focus_sessions is a separate table
 

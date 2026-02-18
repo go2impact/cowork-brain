@@ -894,7 +894,7 @@ Worth studying the pattern for our `window.cowork.*` API. The challenge: our pre
 
 AIME puts everything in main: 12 manager singletons, database, agents, MCP, Playwright, background jobs. If any manager crashes or hangs, the app is dead.
 
-**Why skip:** This is the core architectural difference. Our main process is a thin coordinator — lifecycle, IPC routing, tray, thermal monitoring. All heavy work (capture, agents, Playwright) lives in isolated processes. We made this choice explicitly (see [DESKTOP_FRAMEWORK_DECISION.md](../../decisions/DESKTOP_FRAMEWORK_DECISION.md#multi-process-model)).
+**Why skip:** This is the core architectural difference. Our main process is a thin coordinator — lifecycle, IPC routing, tray, thermal monitoring. All heavy work (capture, agents, Playwright) lives in isolated processes.
 
 #### Express server inside Electron (port 41100)
 
@@ -994,7 +994,7 @@ This section is a side-by-side comparison in the deep-dive — not a feature to 
 
 ### What the Comparison Surfaces as Risks
 
-**Utility process isolation is unproven.** This is the single biggest architectural risk the comparison highlights. AIME's monolithic main process is simpler to implement — no IPC forwarding, no cross-process error handling, no multi-process boot coordination. Our multi-process model is better for stability (crash isolation) but harder to build. The [MASTRA_ELECTRON_VIABILITY.md](../../decisions/MASTRA_ELECTRON_VIABILITY.md) spike must validate this before committing.
+**Utility process isolation is proven.** PoC spike (Feb 17, 2026) validated all 7 steps. AIME's monolithic main process is simpler to implement — no IPC forwarding, no cross-process error handling, no multi-process boot coordination. Our multi-process model is better for stability (crash isolation) but harder to build.
 
 **Two-hop IPC adds complexity.** AIME's renderer ↔ main IPC is straightforward. Our renderer ↔ main ↔ utility adds error surface: utility process can crash mid-stream, MessagePort connections can break, boot timing requires coordination. Section 6 details the adaptation, but the engineering cost is real — expect IPC debugging to be a significant portion of early development.
 

@@ -25,7 +25,7 @@ Put new files in the directory that matches their purpose:
 | `strategy/` | Cost models, pricing tiers, conversion economics | llm-strategy.md |
 | `design/` | M3 design system, interaction model, prototype brief | design-system.md |
 | `gtm/` | Distribution channels, phased rollout, Go2 asset leverage | launch-gtm-strategy.md |
-| `decisions/` | Decision log + deep-dive decision docs and research | decision-log.md, DESKTOP_FRAMEWORK_DECISION.md |
+| `decisions/` | Decision log + deep-dive decision docs and research | decision-log.md |
 | `prototypes/` | Links to UI demos and design concepts | README.md |
 
 Root-level files: `README.md` (project overview), `CONTRIBUTING.md` (this process),

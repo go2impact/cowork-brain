@@ -36,7 +36,7 @@ Last verified: 2026-02-17
 
 ## Key Decisions
 
-- **Desktop framework:** Electron (Swift and Tauri evaluated and rejected) — see [DESKTOP_FRAMEWORK_DECISION.md](decisions/DESKTOP_FRAMEWORK_DECISION.md)
+- **Desktop framework:** Electron (Swift and Tauri evaluated and rejected)
 - **Salvage plan:** What gets kept vs. gutted — see [DESKTOP_SALVAGE_PLAN.md](decisions/DESKTOP_SALVAGE_PLAN.md)
 - **Target architecture:** [system-architecture.md](architecture/system-architecture.md)
 
