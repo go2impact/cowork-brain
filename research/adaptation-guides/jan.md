@@ -1,10 +1,8 @@
 # Jan → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [Jan deep-dive](../deep-dives/jan/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
+**Purpose:** Maps the key patterns from Jan to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/jan/` (reverse-engineering of Jan's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why Jan?** Jan is the most mature local-LLM desktop app in our competitive set. It chose Tauri+Rust (we chose Electron), but its production patterns for model lifecycle, download integrity, MCP process management, and hardware preflight checks are framework-agnostic. These patterns fill gaps that aime-chat, Cherry Studio, and Chatbox don't cover.

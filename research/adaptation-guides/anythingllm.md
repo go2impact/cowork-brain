@@ -1,10 +1,8 @@
 # AnythingLLM → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [AnythingLLM deep-dive](../deep-dives/anythingllm/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
+**Purpose:** Maps the key patterns from AnythingLLM to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/anythingllm/` (reverse-engineering of AnythingLLM's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why AnythingLLM?** AnythingLLM has the most mature RAG pipeline in our competitive set. Its `fillSourceWindow` backfill, query-mode refusal guard, and multi-source context assembly are battle-tested patterns for retrieval-grounded conversations. Its no-code agent flow executor maps to our Automations feature. The MCP hypervisor shows production lifecycle management for stdio/http/sse servers. These patterns fill gaps that aime-chat, Cherry Studio, and Chatbox don't cover.

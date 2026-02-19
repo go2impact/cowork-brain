@@ -1,10 +1,8 @@
 # Chatbox → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [Chatbox deep-dive](../deep-dives/chatbox/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
+**Purpose:** Maps the key patterns from Chatbox to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/chatbox/` (reverse-engineering of Chatbox's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why Chatbox?** Chatbox is the only repo in our competitive set that uses **Mastra LibSQLVector** (via `@mastra/libsql`) — the exact same vector storage stack we're building on. It also has production patterns for libsql in Electron (packaging, migration, corruption avoidance) and an MCP stdio-over-IPC bridge that solves a problem we'll face. These patterns don't exist in aime-chat or Cherry Studio.

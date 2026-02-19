@@ -33,7 +33,7 @@ Embedding pipeline, full RAG, complexity router, advanced MCP features, and auto
 
 ## Renderer Stack Decisions
 
-UI foundation decisions derived from reverse-engineering all 6 reference apps in [research/deep-dives/](../research/deep-dives/) (AIME Chat, AnythingLLM, Chatbox, Cherry Studio, Jan, LobeChat). These are locked — a frontend dev can build against them independently while Sprints 0-5 run in parallel.
+UI foundation decisions derived from reverse-engineering all 6 reference apps (AIME Chat, AnythingLLM, Chatbox, Cherry Studio, Jan, LobeChat). These are locked — a frontend dev can build against them independently while Sprints 0-5 run in parallel.
 
 | Layer | Decision | Rationale |
 |---|---|---|

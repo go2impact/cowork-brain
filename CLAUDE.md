@@ -31,7 +31,6 @@ Decision log entries must include: **Changed**, **From → To**, **Why** (with r
   - `product-features.md` — Detailed feature set and capability map across all phases
 - `architecture/` — Engineering specs: system architecture, LLM stack, apps runtime (Rustan's reference)
 - `research/` — Open-source app analysis
-  - `deep-dives/` — Reverse-engineering of reference apps (AIME Chat, Jan, LobeChat, etc.)
   - `adaptation-guides/` — Copy/adapt/skip decisions per reference app
 - `strategy/` — Cost models, pricing tiers, conversion economics (Scott's reference)
 - `design/` — M3 design system, three-state interaction model, prototype brief. **Read before touching any UI code.**
