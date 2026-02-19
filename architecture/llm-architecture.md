@@ -609,7 +609,7 @@ Explicitly out of scope — do not build these yet:
 ## Changelog
 
 **v4.2 (Feb 16, 2026):**
-- Database stack: `better-sqlite3` + `sqlite-vec` → `libsql` for everything. Built-in vector search replaces sqlite-vec extension. See [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md).
+- Database stack: `better-sqlite3` + `sqlite-vec` → `libsql` for everything. Built-in vector search replaces sqlite-vec extension.
 
 **v4.1 (Feb 16, 2026):**
 - Expanded "Embeddings & Local RAG" → "Embeddings, Local RAG & Memory Architecture" — added four-layer memory model, data pipeline, RAG retrieval flow, context management, and data storage details (moved from product-features.md per CEO feedback on PR #6)
@@ -620,7 +620,7 @@ Explicitly out of scope — do not build these yet:
 - Free tier cloud: Gemini 2.5 Flash (was 2.0 Flash — deprecated March 31, 2026)
 - Thermal auto-detection with auto-failover to cloud
 - Whisper keep-warm (v0.1 simple: always warm on 16GB+)
-- Vector store: libsql built-in vectors (was LanceDB → SQLite-vec → libsql, see [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md))
+- Vector store: libsql built-in vectors (was LanceDB → SQLite-vec → libsql)
 - Cost guardrail: waitlist system (never degrade quality)
 - Phases restructured: Ears → Brain → Memory → Autonomy
 - Scoped explicitly to Mac-only for v0.1

@@ -119,7 +119,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 **Changed:** Originally locked local vector store to SQLite-vec instead of LanceDB. **Superseded:** Database stack research led to libsql for everything — built-in vector search replaces sqlite-vec as a separate extension.
 
-**From → To:** LanceDB or SQLite-vec → SQLite-vec only → **libsql built-in vectors** (see [DATABASE_STACK_RESEARCH.md](DATABASE_STACK_RESEARCH.md))
+**From → To:** LanceDB or SQLite-vec → SQLite-vec only → **libsql built-in vectors**
 
 **Why (original):**
 1. Already using SQLite for activity store. Embeddings live in the same .db file. One database, one file, zero-ops.
@@ -291,8 +291,6 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **Alternatives considered:**
 - Stay with better-sqlite3 + sqlite-vec (original plan): Proven but requires custom Mastra adapter (~500-800 lines for vector alone), two native modules, sqlite-vec packaging friction. Rejected — libsql eliminates all of this.
 - Hybrid (libsql sync for capture + @mastra/libsql for agents): This IS the recommended approach. Both access the same WAL-mode `.db` file.
-
-**Full research:** [`decisions/DATABASE_STACK_RESEARCH.md`](DATABASE_STACK_RESEARCH.md)
 
 **Approved by:** Rustan
 

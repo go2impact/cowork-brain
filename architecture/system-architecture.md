@@ -15,7 +15,6 @@ Inline: **Observer model choice** (line 612, needs benchmarking)
 
 **This doc consolidates decisions from:**
 - DESKTOP_SALVAGE_PLAN.md (consolidated into this doc — see [Codebase Origin](#codebase-origin) and [Execution Phases](#execution-phases))
-- [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md) — why libsql
 - [llm-architecture.md](./llm-architecture.md) — LLM stack, routing, memory, embeddings
 - [product-features.md](../product/product-features.md) — six features that define the product surface
 
@@ -402,7 +401,7 @@ See [capture-pipeline-architecture.md](./capture-pipeline-architecture.md) for t
 
 ## Database Layer
 
-**libsql for everything.** One SDK, one `.db` file, built-in vector search. See [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md).
+**libsql for everything.** One SDK, one `.db` file, built-in vector search.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -1228,7 +1227,7 @@ On 16GB → ~13GB usable → GREEN for DeepSeek-R1-8B (~5.5GB model + ~2GB KV ca
 | Decision | Choice | Why | Reference |
 |---|---|---|---|
 | Desktop framework | Electron | All dependencies are Node.js. Swift/Tauri = two runtimes for zero benefit. | [decision-log.md](../decisions/decision-log.md) |
-| Database | libsql | Native Mastra integration, built-in vectors, one SDK, proven in Electron | [DATABASE_STACK_RESEARCH.md](../decisions/DATABASE_STACK_RESEARCH.md) |
+| Database | libsql | Native Mastra integration, built-in vectors, one SDK, proven in Electron | [decision-log.md](../decisions/decision-log.md) |
 | Native addons | Keep custom `coworkai-*` | Critical capability gaps in open-source alternatives. Electron deadlock in uiohook-napi. | [decision-log.md](../decisions/decision-log.md) |
 | Local LLM | DeepSeek-R1-8B via Ollama | Reasoning capability, Qwen base (Tagalog+EN), fits 16GB Mac | [llm-architecture.md](./llm-architecture.md) |
 | AI SDK version | Vercel AI SDK v6 (`ai` ^6.0.x, `@ai-sdk/react` ^3.0.x) | Interface contract between agents and providers, and between main process and React frontend. v6 over v5: mechanical renames (automated codemod), `@ai-sdk/react` v3 in renderer. Mastra 1.0+ supports both natively. | [decision-log.md](../decisions/decision-log.md#2026-02-16--ai-sdk-version-v6-not-v5) |

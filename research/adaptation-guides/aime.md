@@ -839,7 +839,7 @@ AIME uses two database access patterns against one file (`main.db`):
 
 This works but creates friction: two ORMs, two connection patterns, potential WAL conflicts between synchronous (better-sqlite3) and async (libsql) writers.
 
-We chose to unify on libsql only (see [DATABASE_STACK_RESEARCH.md](../../decisions/DATABASE_STACK_RESEARCH.md)). Trade-offs:
+We chose to unify on libsql only. Trade-offs:
 
 | | AIME (TypeORM + libsql) | Us (libsql only) |
 |---|---|---|
