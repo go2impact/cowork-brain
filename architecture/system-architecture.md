@@ -449,6 +449,8 @@ Separate indexes enable per-type queries (e.g., "find similar activity") or merg
 
 **Schema migration strategy** — Additive `ALTER TABLE ADD COLUMN` with duplicate-column tolerance (try/catch, ignore "column already exists"). No version-tracked migration framework for v0.1. Per-process schema ownership: the Capture Utility process creates and migrates app tables (activities, input events, context streams); the Agents & RAG Utility process creates and migrates its own tables (embedding queue, agent operations, automations, mcp_servers, mcp_connection_state, tool_policies, notification_log, installed_apps, app_permissions). Mastra manages `LibSQLStore` and `LibSQLVector` tables internally. Neither process ALTERs tables owned by the other.
 
+**Transaction wrapper** — `withTransaction(db, fn)` for multi-table atomic operations (e.g., deleting user data across activity + embedding + vector tables). Manual `BEGIN`/`COMMIT`/`ROLLBACK` with proper error handling — distinguishes rollback failures from original errors to prevent masking the root cause.
+
 ---
 
 ## LLM Stack
@@ -614,7 +616,9 @@ The four layers map to a single Mastra Memory config object:
 
 Storage backend: `LibSQLStore` + `LibSQLVector` from `@mastra/libsql`, both pointing at `cowork.db`.
 
-**Open question — Observer model:** Observational Memory's Observer/Reflector defaults to Gemini 2.5 Flash (1M context helps). Can DeepSeek-R1-8B serve as Observer locally, or must this go through cloud? Needs benchmarking. Mastra docs warn that Claude 4.5 models perform poorly as Observer — model choice matters here.
+**Cross-thread observation sharing** — Configure `scope: "resource"` so observations persist across conversation threads for the same user, not just within a single thread. Trade-off: disables async buffering (observations are written synchronously).
+
+**Open question — Observer model:** Observational Memory's Observer/Reflector defaults to Gemini 2.5 Flash (1M context helps). Can DeepSeek-R1-8B serve as Observer locally, or must this go through cloud? Needs benchmarking. Mastra docs warn that Claude 4.5 models perform poorly as Observer — model choice matters here. Default token thresholds (30K observation trigger, 40K reflection trigger) will need tuning for DeepSeek-R1-8B's 8K local context.
 
 ---
 
@@ -818,7 +822,7 @@ MCP servers are **bundled** with the app — developers (us) build and ship each
 | Concern | How it works |
 |---|---|
 | Connection management | OAuth flows, health monitoring, auth expiry detection |
-| Tool registry | Each service exposes tools (list_tickets, send_email, etc.) |
+| Tool registry | Each service exposes tools (list_tickets, send_email, etc.). Tool names namespaced as `mcp__{serverName}__{toolName}` (double underscore — tool names may contain single underscores). Server names lowercased, spaces → underscores. |
 | Scoped access | Apps declare what MCP tools they need. Platform grants per-app. |
 | Disconnect handling | Action pauses, user notified with exact blocker + reconnect action |
 
@@ -848,13 +852,13 @@ starting ──→ running ──→ stopped (user toggled off)
 - Token refresh handled automatically; expiry detection triggers "reconnect" prompt in UI
 - Main process opens browser and captures OAuth callback, forwards tokens to Agents & RAG utility
 
-**MCP orphan cleanup** — Each stdio MCP server gets a lockfile (`{cowork_data_dir}/mcp_lock_{serverNameHash}.json`) with `childPid`, normalized `executablePath`, and `argvHash` (SHA256 of normalized args). On app startup, Main process runs a sweep before Agents boots: glob lockfiles → check process alive (signal 0) → fetch live command line via `ps -p <pid> -o command=` → parse + normalize live executable path and args → compare `(executablePath, argvHash)` from lockfile vs live process → kill only on exact match (SIGTERM, 3s grace, then SIGKILL) → delete lockfile. If PID is dead or identity doesn't match, just delete the stale lockfile. Prevents orphan MCP servers from consuming ports and memory after a crash without risking PID-reuse false kills.
+**MCP orphan cleanup** — Each stdio MCP server gets a lockfile (`{cowork_data_dir}/mcp_lock_{serverNameHash}.json`) with `childPid`, normalized `executablePath`, and `argvHash` (SHA256 of normalized args). On app startup, Main process runs a sweep before Agents boots: glob lockfiles → check process alive (signal 0) → fetch live command line via `ps -p <pid> -o command=` → parse + normalize live executable path and args → compare `(executablePath, argvHash)` from lockfile vs live process → kill only on exact match (SIGTERM, 3s grace, then SIGKILL) → delete lockfile. If PID is dead or identity doesn't match, just delete the stale lockfile. Prevents orphan MCP servers from consuming ports and memory after a crash without risking PID-reuse false kills. When stopping a running server, explicitly access `transport._process` and send SIGTERM — the MCP SDK's `close()` doesn't reliably kill the child process.
 
 **Client cache with dedup** — `pendingClients` Map prevents duplicate connections when the agent fires multiple tool calls in rapid succession during startup. Before reuse, a health ping (1s timeout) verifies the client is still alive.
 
 **Notification-driven invalidation** — MCP servers push `ToolListChangedNotification` → client cache cleared → next access fetches fresh tool list. Handles external changes (e.g., user adds a Zendesk macro via the web UI → Zendesk MCP server's tool list changes).
 
-**Per-call abort** — `AbortController` per tool call with unique `callId`. Enables per-call cancellation for safety rails (cost threshold exceeded) and user "Stop" button. Active tool calls tracked in a Map; `abortTool(callId)` signals the controller.
+**Per-call abort** — `AbortController` per tool call with unique `callId`. Enables per-call cancellation for safety rails (cost threshold exceeded) and user "Stop" button. Active tool calls tracked in a Map; `abortTool(callId)` signals the controller. Per-server timeout (default 60s) with `resetTimeoutOnProgress` — long-running tools (batch ticket fetch, email search) reset the timeout when intermediate results arrive, preventing premature kills while still catching truly hung calls.
 
 **MCP connection flow** — Since MCP servers are bundled (dependencies ship with the app), the user-facing flow is connection, not installation:
 
@@ -862,7 +866,7 @@ starting ──→ running ──→ stopped (user toggled off)
 1. SELECT_SERVICE    → User picks from bundled integrations (Zendesk, Gmail, Slack, etc.)
 2. CONFIG_REQUIRED   → [PAUSE] Show config form (API keys, URLs) from bundled JSON schema
 3. AUTHENTICATING    → OAuth flow or API key validation
-4. STARTING_SERVER   → Start bundled MCP server + list tools (validate working)
+4. STARTING_SERVER   → Start bundled MCP server + list tools (validate working). 30s connection timeout — misconfigured server must not hang boot.
 5. SAVING_CONFIG     → Save connection config to libsql mcp_servers table
 6. CONNECTED         → Show success, tools available
 ```
