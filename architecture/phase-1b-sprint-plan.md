@@ -74,7 +74,7 @@ React 19 + TypeScript
 
 ### Parallelizable frontend task
 
-The shadcn/ui + M3 token override work can run **fully in parallel** with Sprints 0-5. A frontend dev copies 19 shadcn components into the project and re-skins them with M3 token classes per [ui-component-task-brief.md](./ui-component-task-brief.md). Deliverable: `src/renderer/components/ui/` folder with Tailwind config, CSS variable file (dark + light), and restyled components. Integrated into the Electron renderer in Sprint 4.5.
+The shadcn/ui + M3 token override work can run **fully in parallel** with Sprints 0-5. A frontend dev copies 19 shadcn components into the project and re-skins them with M3 token classes per the UI component task brief. Deliverable: `src/renderer/components/ui/` folder with Tailwind config, CSS variable file (dark + light), and restyled components. Integrated into the Electron renderer in Sprint 4.5.
 
 ---
 
