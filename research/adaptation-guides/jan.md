@@ -1,13 +1,11 @@
 # Jan → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [Jan deep-dive](../deep-dives/jan/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
+**Purpose:** Maps the key patterns from Jan to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/jan/` (reverse-engineering of Jan's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
-**Why Jan?** Jan is the most mature local-LLM desktop app in our competitive set. It chose Tauri+Rust (we chose Electron — see `decisions/DESKTOP_FRAMEWORK_DECISION.md`), but its production patterns for model lifecycle, download integrity, MCP process management, and hardware preflight checks are framework-agnostic. These patterns fill gaps that aime-chat, Cherry Studio, and Chatbox don't cover.
+**Why Jan?** Jan is the most mature local-LLM desktop app in our competitive set. It chose Tauri+Rust (we chose Electron), but its production patterns for model lifecycle, download integrity, MCP process management, and hardware preflight checks are framework-agnostic. These patterns fill gaps that aime-chat, Cherry Studio, and Chatbox don't cover.
 
 **Key difference from other guides:** Jan runs its native logic in Rust via Tauri commands. We run ours in Node.js via Electron utility processes. The patterns translate cleanly — the algorithms, data structures, and lifecycle flows are the same regardless of language. We note where Rust-specific idioms need TypeScript equivalents.
 
@@ -566,7 +564,7 @@ Jan serves live API docs at `GET /` with runtime host/port substitution. Nice fo
 
 | Pattern | Why skip |
 |---|---|
-| Tauri+Rust architecture | We chose Electron (see DESKTOP_FRAMEWORK_DECISION.md) |
+| Tauri+Rust architecture | We chose Electron |
 | llama.cpp direct process management | We use Ollama, which manages its own llama.cpp |
 | ArgumentBuilder for llama.cpp CLI flags | Ollama abstracts this |
 | HuggingFace repo parsing + quant catalog | Ollama has its own model registry |

@@ -1,10 +1,8 @@
 # Cherry Studio → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [Cherry Studio deep-dive](../deep-dives/cherry-studio/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
+**Purpose:** Maps the key patterns from Cherry Studio to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/cherry-studio/` (reverse-engineering of Cherry Studio's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why Cherry Studio?** Cherry Studio fills gaps that aime-chat doesn't cover. It's Electron + Vite + AI SDK (same foundation), but has production patterns for: IPC observability, MCP tool aggregation, multi-window state sync, multi-model UX, and multi-entry Electron builds. These five patterns are directly relevant to Cowork.ai's architecture and don't exist in aime-chat.

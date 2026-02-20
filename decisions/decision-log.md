@@ -119,7 +119,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 **Changed:** Originally locked local vector store to SQLite-vec instead of LanceDB. **Superseded:** Database stack research led to libsql for everything — built-in vector search replaces sqlite-vec as a separate extension.
 
-**From → To:** LanceDB or SQLite-vec → SQLite-vec only → **libsql built-in vectors** (see [DATABASE_STACK_RESEARCH.md](DATABASE_STACK_RESEARCH.md))
+**From → To:** LanceDB or SQLite-vec → SQLite-vec only → **libsql built-in vectors**
 
 **Why (original):**
 1. Already using SQLite for activity store. Embeddings live in the same .db file. One database, one file, zero-ops.
@@ -212,8 +212,6 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 **Risk mitigation:** All business logic lives in `core/` with zero Electron imports. Electron-specific wiring is isolated in `electron/`. If migration is ever needed, business logic lifts out cleanly.
 
-**Full writeup:** [`decisions/DESKTOP_FRAMEWORK_DECISION.md`](DESKTOP_FRAMEWORK_DECISION.md)
-
 **Approved by:** Rustan
 
 ---
@@ -250,7 +248,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 **From → To:**
 - Four active repos (`coworkai-desktop`, `coworkai-agent`, `coworkai-activity-capture`, `coworkai-keystroke-capture`) → Gut `coworkai-desktop` and `coworkai-agent` in place, keep capture addon repos as-is
-- Custom C++ native addons for capture → **Keep both** (deep research found open-source replacements have critical capability gaps — see [NATIVE_ADDON_REPLACEMENT_RESEARCH.md](NATIVE_ADDON_REPLACEMENT_RESEARCH.md))
+- Custom C++ native addons for capture → **Keep both** (deep research found open-source replacements have critical capability gaps)
 - `coworkai-agent` tracking engine → Keep capture orchestration (activity buffers, keystroke chunking, SQLite persistence), kill timer/sync/media/employer auth. Mastra.ai handles AI agent orchestration separately.
 - Tracking-oriented SQLite schema → New schema designed for context/memory/embeddings with `libsql` built-in vectors (replaced `better-sqlite3` + `sqlite-vec`)
 - Single-process main architecture → Multi-process isolation (capture utility, agents/RAG utility, Playwright child, sandboxed renderer)
@@ -269,7 +267,7 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - ~~Replace custom native addons (Opus): Originally accepted as "same OS APIs."~~ **Reversed after deep research.** Open-source replacements have critical gaps (no character mapping, Electron deadlock, no Windows URLs). Gemini was right. Now rejected.
 - ~~Archive `coworkai-agent` (original decision):~~ **Reversed.** The agent contains reusable capture orchestration that would need to be rebuilt. Gut the tracking code, keep the capture plumbing.
 
-**Full writeup:** [`decisions/DESKTOP_SALVAGE_PLAN.md`](DESKTOP_SALVAGE_PLAN.md)
+**Full writeup:** [system-architecture.md § Codebase Origin](../architecture/system-architecture.md#codebase-origin)
 
 **Approved by:** Rustan
 
@@ -293,8 +291,6 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 **Alternatives considered:**
 - Stay with better-sqlite3 + sqlite-vec (original plan): Proven but requires custom Mastra adapter (~500-800 lines for vector alone), two native modules, sqlite-vec packaging friction. Rejected — libsql eliminates all of this.
 - Hybrid (libsql sync for capture + @mastra/libsql for agents): This IS the recommended approach. Both access the same WAL-mode `.db` file.
-
-**Full research:** [`decisions/DATABASE_STACK_RESEARCH.md`](DATABASE_STACK_RESEARCH.md)
 
 **Approved by:** Rustan
 
@@ -428,6 +424,8 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 ## 2026-02-17 — Apps permission boundary: tools-only (agent access via `platform_chat` tool)
 
+> Superseded on 2026-02-17 by "Apps runtime contract: read lane (`cowork:read`) with install-time disclosure."
+
 **Changed:** Removed direct app-level agent permission (`chat` / `permissions.agent`) from the active schema and architecture contract. Apps now access agent reasoning only through a platform-provided MCP tool (`platform_chat`) using the same `callTool()` path as other tools.
 
 **From → To:** Mixed model (`callTool(...)` + direct app SDK `chat(...)` with special agent permission) → Tools-only model (`callTool(...)` for all app actions, including agent-as-tool via `platform_chat`).
@@ -471,8 +469,6 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 
 **Cost impact:** None. Two additional TEXT columns on keystroke_chunks (negligible storage at our volume). Simpler write path, simpler queries.
 
-**Full analysis:** [`decisions/CAPTURE_FLUSH_COUPLING_ANALYSIS.md`](CAPTURE_FLUSH_COUPLING_ANALYSIS.md)
-
 **Approved by:** Rustan
 
 ---
@@ -502,5 +498,29 @@ Every significant architecture or strategy change gets an entry here. See [CONTR
 - Keep coupled flush behavior (chunk max-length also ends activity): rejected — preserves sync-era artifact, fragments semantic sessions, weakens focus/RAG correctness.
 - Decouple flushes without heartbeat/recovery rules: rejected — leaves crash edge cases unresolved (open sessions/orphan risk) and undercounts passive read-only work.
 - Drop short sessions at write-time: rejected — loses raw ground-truth data and makes threshold tuning/audit harder.
+
+**Approved by:** Rustan
+
+---
+
+## 2026-02-17 — Apps runtime contract: read lane (`cowork:read`) with install-time disclosure
+
+**Changed:** Replaced the app runtime contract from app-executed tool calls to a typed read-only SDK over a single read lane channel. Added mandatory install-time disclosure of app-readable data scope.
+
+**From → To:** Tools-only app runtime (`window.cowork.callTool(...)` with scoped grants, including `platform_chat` agent-as-tool) → Read-lane runtime (`window.cowork.{context,user,data}.*` mapped to `cowork:read`, no app tool execution in Phase 1B, required install-time disclosure before enabling app access).
+
+**Why:**
+1. The app runtime objective in Phase 1B is deterministic, low-latency data access for varied third-party apps. Tool execution from apps conflates reads with writes and couples app behavior to internal tool schemas.
+2. Read-lane methods map directly to stable product data primitives (current context, preferences/profile, app-scoped conversations, search), which are easier to type, document, and keep backward-compatible.
+3. Runtime per-method permission prompts for reads create permission fatigue and degrade app UX without materially improving write safety (apps still cannot mutate through read lane).
+4. Default-allowed read access still has sensitivity risk; making install-time disclosure mandatory addresses informed consent while preserving deterministic runtime behavior.
+5. The platform keeps a single action authority boundary: tool execution and agent reasoning remain platform-owned paths, not app-owned paths, in Phase 1B.
+
+**Cost impact:** Slightly positive. Removes app tool permission/grant runtime complexity and related QA matrix for Phase 1B. Adds minor UI/wording work for install-time disclosure.
+
+**Alternatives considered:**
+- Keep tools-only app contract (`callTool` + `platform_chat`): rejected — still exposes action surface to third-party apps and preserves coupling to internal tool schemas.
+- Agent-mediated app calls: rejected — non-deterministic, slower, and token-costly for simple reads.
+- MCP protocol for app transport: rejected — unnecessary protocol overhead for local app-to-platform reads.
 
 **Approved by:** Rustan

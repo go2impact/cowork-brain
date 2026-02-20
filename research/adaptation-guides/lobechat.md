@@ -1,10 +1,8 @@
 # LobeChat → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps the key patterns from the [LobeChat deep-dive](../deep-dives/lobechat/codex-output.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
+**Purpose:** Maps the key patterns from LobeChat to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/lobechat/` (reverse-engineering of LobeChat's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 **Why LobeChat?** LobeChat has the most sophisticated agent runtime and MCP integration in our competitive set. Its operation-based execution model with persisted state, human intervention policy system, and multi-step MCP install flow are patterns no other app in our set implements at this level. These fill gaps in our agent orchestration and tool-approval UX that aime-chat, Cherry Studio, and Chatbox don't address.

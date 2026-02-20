@@ -1,10 +1,8 @@
 # AIME Chat → Cowork.ai Adaptation Guide
 
-**Purpose:** Maps each section of the [AIME Chat deep-dive](../deep-dives/aime-chat/README.md) to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
+**Purpose:** Maps each section of the AIME Chat analysis to Cowork.ai — what we copy, what we adapt, and what we skip. Each section explains *why* a pattern changes for our multi-process architecture.
 
 **Audience:** Engineering (Rustan + team)
-
-**Source material:** `research/deep-dives/aime-chat/` (reverse-engineering of AIME Chat's codebase)
 **Target architecture:** [`architecture/system-architecture.md`](../../architecture/system-architecture.md)
 
 ---
@@ -28,7 +26,7 @@
 
 ## 0. Vercel AI SDK
 
-**Source:** [`research/deep-dives/aime-chat/00-vercel-ai-sdk.md`](../deep-dives/aime-chat/00-vercel-ai-sdk.md)
+**Source:** AIME Chat — Vercel AI SDK analysis
 
 AI SDK is the interface contract for everything — agents, providers, streaming, frontend hooks. AIME and Cowork.ai both build on it. The differences come from *where* things run (their process model vs. ours) and *which version* we target.
 
@@ -177,7 +175,7 @@ AIME has `generateText` imported in ~24 tool files with zero call sites. Dead co
 
 ## 1. Mastra Agent System
 
-**Source:** [`research/deep-dives/aime-chat/01-mastra-agent-system.md`](../deep-dives/aime-chat/01-mastra-agent-system.md)
+**Source:** AIME Chat — Mastra agent system analysis
 
 AIME's agent system is a coding assistant — one user-facing agent (CodeAgent) with sub-agents for codebase exploration and planning. Cowork.ai is a work sidecar — a single platform agent that handles heterogeneous tasks (email, tickets, scheduling) across many MCP services. The agent patterns differ fundamentally, but the execution infrastructure is directly reusable.
 
@@ -319,7 +317,7 @@ Not relevant.
 
 ## 2. RAG & Knowledge Base
 
-**Source:** [`research/deep-dives/aime-chat/02-rag-knowledge-base.md`](../deep-dives/aime-chat/02-rag-knowledge-base.md)
+**Source:** AIME Chat — RAG knowledge base analysis
 
 AIME's RAG is a manual document upload system — users add PDFs, DOCX files, URLs, and images to a knowledge base. Cowork.ai's RAG is ambient — context arrives automatically from capture (window activity, keystrokes, clipboard) and conversation history. Same vector infrastructure, fundamentally different input source.
 
@@ -415,7 +413,7 @@ AIME creates separate vector tables per knowledge base (`kb_{kbId}_{dim}`). This
 
 ## 3. MCP Integration
 
-**Source:** [`research/deep-dives/aime-chat/03-mcp-integration.md`](../deep-dives/aime-chat/03-mcp-integration.md)
+**Source:** AIME Chat — MCP integration analysis
 
 AIME is an MCP client that connects to external servers, plus it exposes its own tools as an MCP server via Express. Cowork.ai does both of these, but our MCP server role is fundamentally different — we provide platform capabilities to third-party apps (Google AI Studio apps) with scoped permissions, not just internal tool access.
 
@@ -511,7 +509,7 @@ AIME lets users paste raw MCP server config JSON in Settings. This is developer-
 
 ## 4. Tool System
 
-**Source:** [`research/deep-dives/aime-chat/04-tool-system.md`](../deep-dives/aime-chat/04-tool-system.md)
+**Source:** AIME Chat — tool system analysis
 
 AIME has 25+ built-in tools baked into the app (bash, file ops, web search, image gen, audio, database). Cowork.ai's tool system is bidirectional:
 
@@ -638,7 +636,7 @@ AIME wraps `child_process.spawn()` for bash execution with timeout, process grou
 
 ## 5. AI Provider Support
 
-**Source:** [`research/deep-dives/aime-chat/05-ai-provider-support.md`](../deep-dives/aime-chat/05-ai-provider-support.md)
+**Source:** AIME Chat — AI provider support analysis
 
 AIME exposes 14+ providers to users — OpenAI, DeepSeek, Google, Ollama, LMStudio, ZhipuAI, ModelScope, and more. Users pick a provider, enter an API key, choose a model. Cowork.ai deliberately hides all of this behind the complexity router. But we do have three providers, not one monolithic gateway:
 
@@ -745,7 +743,7 @@ No need for dynamic capability discovery.
 
 ## 6. Electron Architecture
 
-**Source:** [`research/deep-dives/aime-chat/06-electron-architecture.md`](../deep-dives/aime-chat/06-electron-architecture.md)
+**Source:** AIME Chat — Electron architecture analysis
 
 AIME is a standard two-process Electron app: main process runs everything heavy (12 manager singletons — DB, agents, MCP, providers, Playwright, background jobs), renderer communicates via context-isolated IPC. Cowork.ai is a five-process app: main is a thin coordinator, heavy work distributes across two utility processes (Capture, Agents & RAG) plus a Playwright child. The fundamental difference is process model — their patterns for IPC contracts and boot sequencing transfer, but where code lives changes completely.
 
@@ -839,7 +837,7 @@ AIME uses two database access patterns against one file (`main.db`):
 
 This works but creates friction: two ORMs, two connection patterns, potential WAL conflicts between synchronous (better-sqlite3) and async (libsql) writers.
 
-We chose to unify on libsql only (see [DATABASE_STACK_RESEARCH.md](../../decisions/DATABASE_STACK_RESEARCH.md)). Trade-offs:
+We chose to unify on libsql only. Trade-offs:
 
 | | AIME (TypeORM + libsql) | Us (libsql only) |
 |---|---|---|
@@ -894,7 +892,7 @@ Worth studying the pattern for our `window.cowork.*` API. The challenge: our pre
 
 AIME puts everything in main: 12 manager singletons, database, agents, MCP, Playwright, background jobs. If any manager crashes or hangs, the app is dead.
 
-**Why skip:** This is the core architectural difference. Our main process is a thin coordinator — lifecycle, IPC routing, tray, thermal monitoring. All heavy work (capture, agents, Playwright) lives in isolated processes. We made this choice explicitly (see [DESKTOP_FRAMEWORK_DECISION.md](../../decisions/DESKTOP_FRAMEWORK_DECISION.md#multi-process-model)).
+**Why skip:** This is the core architectural difference. Our main process is a thin coordinator — lifecycle, IPC routing, tray, thermal monitoring. All heavy work (capture, agents, Playwright) lives in isolated processes.
 
 #### Express server inside Electron (port 41100)
 
@@ -912,7 +910,7 @@ Already covered in Adapt above. We unified on libsql only.
 
 ## 7. UI & i18n
 
-**Source:** [`research/deep-dives/aime-chat/07-ui-and-i18n.md`](../deep-dives/aime-chat/07-ui-and-i18n.md)
+**Source:** AIME Chat — UI and i18n analysis
 
 AIME's UI is a developer-oriented chat app: sidebar navigation (Chat, KB, Agents, Tools, Projects, Settings), chat conversation with tool invocations and reasoning panels, model selector, task manager. Built with shadcn/ui (Radix primitives) + Tailwind + Zustand + React Router. Cowork.ai's UI is a work sidecar with six feature views (Apps, MCP Integrations, Chat, MCP Browser, Automations, Context) built with M3 (Material Design 3) + Tailwind. Different design system, different navigation model, but several UI problems overlap.
 
@@ -980,7 +978,7 @@ AIME supports Chinese and English via `i18next` + `react-i18next` with DB-cached
 
 ## 8. Architecture Comparison
 
-**Source:** [`research/deep-dives/aime-chat/08-architecture-comparison.md`](../deep-dives/aime-chat/08-architecture-comparison.md)
+**Source:** AIME Chat — architecture comparison
 
 This section is a side-by-side comparison in the deep-dive — not a feature to adapt. Rather than Copy/Adapt/Skip, this section synthesizes the comparison into implementation guidance: what the deep-dive validates about our architecture, what risks it surfaces, and what the comparison reveals about our actual differentiation.
 
@@ -994,7 +992,7 @@ This section is a side-by-side comparison in the deep-dive — not a feature to 
 
 ### What the Comparison Surfaces as Risks
 
-**Utility process isolation is unproven.** This is the single biggest architectural risk the comparison highlights. AIME's monolithic main process is simpler to implement — no IPC forwarding, no cross-process error handling, no multi-process boot coordination. Our multi-process model is better for stability (crash isolation) but harder to build. The [MASTRA_ELECTRON_VIABILITY.md](../../decisions/MASTRA_ELECTRON_VIABILITY.md) spike must validate this before committing.
+**Utility process isolation is proven.** PoC spike (Feb 17, 2026) validated all 7 steps. AIME's monolithic main process is simpler to implement — no IPC forwarding, no cross-process error handling, no multi-process boot coordination. Our multi-process model is better for stability (crash isolation) but harder to build.
 
 **Two-hop IPC adds complexity.** AIME's renderer ↔ main IPC is straightforward. Our renderer ↔ main ↔ utility adds error surface: utility process can crash mid-stream, MessagePort connections can break, boot timing requires coordination. Section 6 details the adaptation, but the engineering cost is real — expect IPC debugging to be a significant portion of early development.
 
@@ -1025,7 +1023,7 @@ The deep-dive's provider comparison is now outdated. Updated version:
 
 ## 9. Summary
 
-**Source:** [`research/deep-dives/aime-chat/09-summary.md`](../deep-dives/aime-chat/09-summary.md)
+**Source:** AIME Chat — summary
 
 Consolidated quick-reference across all sections. The deep-dive's summary is organized as Copy/Study/Skip lists — this adaptation guide version updates those lists based on the analysis in Sections 0–8 and corrects items where our architecture diverges from the deep-dive's original recommendations.
 

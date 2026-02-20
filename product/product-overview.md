@@ -141,6 +141,6 @@ For deeper context on any area, see:
 
 | Version | Date | Changes |
 |---------|------|---------|
-| 1.2 | 2026-02-16 | Fixed desktop framework reference to Electron (see decisions/DESKTOP_FRAMEWORK_DECISION.md). |
+| 1.2 | 2026-02-16 | Fixed desktop framework reference to Electron. |
 | 1.1 | 2026-02-16 | Updated "What Users Can Do" to reflect all 6 product features (Apps, MCP Integrations, Chat, MCP Browser, Automations, Context). |
 | 1.0 | 2026-02-12 | Initial product overview. |
